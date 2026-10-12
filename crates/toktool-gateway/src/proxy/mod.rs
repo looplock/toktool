@@ -223,7 +223,9 @@ pub fn status(
         running,
         listen: listen.map(|addr| addr.to_string()),
         config,
-        config_path: config_path.map(|path| path.to_string_lossy().into_owned()),
+        // 展示给前端的路径统一正斜杠（与 toolconfig 的展示口径一致），
+        // Windows 原生反斜杠在 UI 里显得突兀且不可移植。
+        config_path: config_path.map(|path| path.to_string_lossy().replace('\\', "/")),
     }
 }
 
@@ -889,6 +891,17 @@ impl RequestMetering {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// 状态里回显的配置路径统一正斜杠（展示口径，Windows 反斜杠不进 UI）。
+    #[test]
+    fn status_echoes_config_path_with_portable_separators() {
+        let path = std::path::PathBuf::from("/tmp/some\\dir/gateway.json");
+        let st = status(Some(&path), false, None);
+        assert_eq!(
+            st.config_path.as_deref(),
+            Some("/tmp/some/dir/gateway.json")
+        );
+    }
 
     /// Gemini 路径段编码：安全字符原样、走私字符与非 ASCII 按 UTF-8 字节转义。
     #[test]

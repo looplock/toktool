@@ -326,7 +326,9 @@ pub async fn gateway_start(state: State<'_, GatewaySlot>) -> Result<GatewayStatu
             config: ConfigView::Invalid {
                 message: "gateway is running; status read failed".into(),
             },
-            config_path: paths::gateway_config_path().map(|p| p.display().to_string()),
+            // 展示口径统一正斜杠（同 proxy::status 的 config_path）。
+            config_path: paths::gateway_config_path()
+                .map(|p| p.display().to_string().replace('\\', "/")),
         },
     };
     Ok(status)
