@@ -25,7 +25,7 @@
   <a href="docs/images/cover-zh-light.svg">
     <picture>
       <source media="(prefers-color-scheme: dark)" srcset="docs/images/cover-zh.svg">
-      <img src="docs/images/cover-zh-light.svg" alt="Toktool 数据流——9 个工具与网关流量汇入本地 SQLite 数据库" width="100%">
+      <img src="docs/images/cover-zh-light.svg" alt="Toktool 数据流——AI 编程工具日志与网关流量汇入本地 SQLite 数据库" width="100%">
     </picture>
   </a>
 </p>
@@ -93,7 +93,7 @@ Toktool 在本地补上这块：扫描这些日志，把 token 用量与估算�
 
 ```mermaid
 flowchart LR
-    logs["9 个工具的会话日志"] -->|扫描| adapters["9 个适配器<br/>解析 · 去重"]
+    logs["AI 编程工具的会话日志"] -->|扫描| adapters["适配器<br/>解析 · 去重"]
     gw["本地网关<br/>反向代理 + 协议转换"] -->|"计量每个请求"| db
     adapters -->|事实| db[("SQLite (WAL)<br/>~/.toktool/")]
     db --> dashboard["用量与成本仪表盘"]

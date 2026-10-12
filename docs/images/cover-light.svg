@@ -37,7 +37,7 @@
   <animate attributeName="stroke-dashoffset" values="0;-72" dur="2s" repeatCount="indefinite"/>
 </path>
 
-<!-- ===== left: 9 tools log stack ===== -->
+<!-- ===== left: tool log stack ===== -->
 <g>
   <rect x="92"  y="188" width="196" height="70" rx="10" fill="#F6F8FA" stroke="#D0D7DE"/>
   <rect x="84"  y="228" width="196" height="70" rx="10" fill="#F6F8FA" stroke="#D0D7DE"/>

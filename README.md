@@ -25,7 +25,7 @@
   <a href="docs/images/cover-light.svg">
     <picture>
       <source media="(prefers-color-scheme: dark)" srcset="docs/images/cover.svg">
-      <img src="docs/images/cover-light.svg" alt="Toktool data flow — 9 tools and gateway traffic streaming into a local SQLite database" width="100%">
+      <img src="docs/images/cover-light.svg" alt="Toktool data flow — AI coding tool logs and gateway traffic streaming into a local SQLite database" width="100%">
     </picture>
   </a>
 </p>
@@ -93,7 +93,7 @@ Supported tools: Claude Code, Codex, OpenCode, ZCode, CodeBuddy, WorkBuddy, Grok
 
 ```mermaid
 flowchart LR
-    logs["Session logs<br/>of 9 AI tools"] -->|scan| adapters["9 adapters<br/>parse · dedupe"]
+    logs["Session logs<br/>of AI coding tools"] -->|scan| adapters["Adapters<br/>parse · dedupe"]
     gw["Local gateway<br/>proxy + protocol translation"] -->|"meter every request"| db
     adapters -->|facts| db[("SQLite (WAL)<br/>~/.toktool/")]
     db --> dashboard["Usage & cost dashboard"]
