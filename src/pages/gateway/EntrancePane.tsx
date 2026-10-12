@@ -21,7 +21,7 @@ import {
   type GatewayOverviewPayload,
   type GatewayStatus,
 } from "../../lib/api";
-import { formatCount } from "../../lib/format";
+import { formatCount, httpEndpointUrl } from "../../lib/format";
 import { PaneCard } from "./PaneCard";
 
 /** 四种受支持接入协议的 UI 标识；"responses" 是 OpenAI Responses SDK。 */
@@ -96,7 +96,12 @@ export function EntrancePane({
       .finally(() => setIssuing(false));
   };
 
-  const endpoint = listen ?? "127.0.0.1:8412";
+  // 展示端点：运行中用实际监听地址；未运行用配置里登记的地址（下次启动按
+  // 它绑；随机端口回退只在端口冲突时发生）。两者都不可得就显示占位，不再
+  // 编造写死的缺省地址——配置改成别的端口时旧兜底就是错的。IPv6 主机经
+  // httpEndpointUrl 补方括号成合法 URL（运行中的 SocketAddr Display 已带）。
+  const endpoint = listen ?? (config?.kind === "valid" ? config.listen : null);
+  const endpointUrl = endpoint === null ? null : `http://${httpEndpointUrl(endpoint)}`;
   const protocolHint =
     protocol === "anthropic"
       ? strings.gatewayProtocolAnthropicHint
@@ -169,10 +174,17 @@ export function EntrancePane({
               hint={strings.gatewayEndpointHint}
             >
               <div className="flex items-center gap-2">
-                <span className={`flex-1 ${readOnlyClass}`}>http://{endpoint}</span>
+                <span className={`flex-1 ${readOnlyClass}`}>
+                  {endpointUrl ?? "—"}
+                </span>
                 <Button
                   variant="ghost"
-                  onClick={() => copy(`http://${endpoint}`, "endpoint")}
+                  disabled={endpointUrl === null}
+                  onClick={() => {
+                    if (endpointUrl !== null) {
+                      copy(endpointUrl, "endpoint");
+                    }
+                  }}
                   aria-label={
                     copiedKey === "endpoint"
                       ? strings.gatewayCopied

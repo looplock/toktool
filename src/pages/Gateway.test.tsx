@@ -107,6 +107,48 @@ it("入口页运行态：停止按钮与运行提示", () => {
   expect(html).toContain(strings.gatewayStop);
 });
 
+it("入口页端点：未运行按配置地址展示（IPv6 补方括号），配置不可得显示占位", () => {
+  const v6: GatewayStatus = {
+    running: false,
+    listen: null,
+    configPath: null,
+    config: {
+      kind: "valid",
+      listen: "::1:8412",
+      upstreams: [],
+      routes: [],
+      mappings: [],
+      models: [],
+      tokenCount: 0,
+    },
+  };
+  expect(
+    renderToStaticMarkup(
+      <GatewayPage
+        strings={strings}
+        initialStatus={v6}
+        initialOverview={OVERVIEW}
+      />,
+    ),
+  ).toContain("http://[::1]:8412");
+
+  const invalid: GatewayStatus = {
+    running: false,
+    listen: null,
+    configPath: null,
+    config: { kind: "invalid", message: "boom" },
+  };
+  const html = renderToStaticMarkup(
+    <GatewayPage
+      strings={strings}
+      initialStatus={invalid}
+      initialOverview={OVERVIEW}
+    />,
+  );
+  expect(html).not.toContain("http://");
+  expect(html).toContain("—");
+});
+
 it("上游分区：空配置给空态，有数据时列出上游", () => {
   const html = renderToStaticMarkup(
     <GatewayPage

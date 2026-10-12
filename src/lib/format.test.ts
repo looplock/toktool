@@ -6,6 +6,7 @@ import {
   formatCount,
   formatDayRange,
   formatDuration,
+  httpEndpointUrl,
   formatTimeShort,
   formatTimestamp,
   formatTokens,
@@ -168,4 +169,12 @@ describe("formatDuration", () => {
     expect(formatDuration((24 + 2) * 3_600_000, units)).toBe("1d 2h");
     expect(formatDuration(48 * 3_600_000, units)).toBe("2d");
   });
+});
+
+it("httpEndpointUrl 给 IPv6 主机补方括号，其余原样", () => {
+  expect(httpEndpointUrl("127.0.0.1:8412")).toBe("127.0.0.1:8412");
+  expect(httpEndpointUrl("[::1]:8412")).toBe("[::1]:8412");
+  expect(httpEndpointUrl("::1:8412")).toBe("[::1]:8412");
+  expect(httpEndpointUrl("localhost:8412")).toBe("localhost:8412");
+  expect(httpEndpointUrl("no-port")).toBe("no-port");
 });

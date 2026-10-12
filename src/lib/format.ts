@@ -165,3 +165,18 @@ export function formatTimeShort(ms: number, locale: string): string {
     hour12: false,
   }).format(ms);
 }
+
+/** host:port 端点 → 合法的 http URL 权威段：IPv6 主机（裸 `::1` 之类）补
+ * 方括号成 `[::1]:8412`。Rust `SocketAddr` 的 Display 对 IPv6 自带方括号，
+ * 原样通过；无端口的输入原样返回。 */
+export function httpEndpointUrl(endpoint: string): string {
+  const at = endpoint.lastIndexOf(":");
+  if (at <= 0) {
+    return endpoint;
+  }
+  const host = endpoint.slice(0, at);
+  if (host.startsWith("[") || !host.includes(":")) {
+    return endpoint;
+  }
+  return `[${host}]${endpoint.slice(at)}`;
+}
