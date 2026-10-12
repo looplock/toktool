@@ -9,7 +9,7 @@
 use serde::Serialize;
 use tauri::{Emitter, Manager, State};
 use toktool_core::error::ErrorCode;
-use toktool_core::{VERSION, now_ms, paths, pricing, scan, sessions, storage};
+use toktool_core::{now_ms, paths, pricing, scan, sessions, storage};
 use toktool_gateway::proxy::{self, ConfigView, GatewayHandle, GatewayStatus};
 
 /// 网关运行句柄的壳内槽位。async Mutex：start 是 async 且持锁跨 await，
@@ -27,12 +27,6 @@ fn open_storage() -> Result<storage::Storage, String> {
     let db =
         paths::main_db_path().ok_or_else(|| ErrorCode::HomeDirUnavailable.as_str().to_string())?;
     storage::open(&db).map_err(code_of)
-}
-
-/// 返回应用版本（取自 `toktool-core` 的单一事实源）；骨架期兼作 IPC 链路冒烟。
-#[tauri::command]
-pub fn app_version() -> &'static str {
-    VERSION
 }
 
 /// 手动触发一轮扫描：常驻循环在壳里（与窗口生死无关），这里只是通知。
@@ -695,12 +689,6 @@ pub fn tray_set_texts(
 #[cfg(test)]
 mod tests {
     use super::*;
-
-    #[test]
-    fn app_version_returns_core_version() {
-        assert_eq!(app_version(), toktool_core::VERSION);
-        assert_eq!(app_version(), env!("CARGO_PKG_VERSION"));
-    }
 
     #[test]
     fn errors_compress_to_their_stable_code() {

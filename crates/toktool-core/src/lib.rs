@@ -48,5 +48,5 @@ pub fn now_ms() -> i64 {
 /// 适配器统一接口：外部调用方从这里拿契约与已注册的适配器，不深入子模块。
 pub use adapter::{Adapter, adapters};
 
-/// 产品版本，取自 Cargo 单一事实源；桌面壳的 `app_version` 命令原样返回它。
+/// 产品版本，取自 Cargo 单一事实源；桌面壳的 about 展示与发版校验都引它。
 pub const VERSION: &str = env!("CARGO_PKG_VERSION");

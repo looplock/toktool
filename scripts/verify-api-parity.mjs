@@ -5,6 +5,10 @@
  * 括号配平文本解析，只覆盖仓库用到的 serde 子集（rename_all / rename_all_fields /
  * rename / tag / skip_serializing_if）。已知盲区：TS 把 Rust string 收窄成字面量
  * 联合是单向放行，数值宽度不查——由 tsc 与运行时测试兜底。
+ *
+ * 另校验 invoke 命令名三方对齐：`#[tauri::command]` 定义 ↔ generate_handler
+ * 注册 ↔ 前端 `invoke("…")` 调用（`plugin:` 前缀的插件命令不参与）——改名/新增/
+ * 删除命令时漏掉任何一侧都在这里报错，而不是运行时才炸。
  */
 
 import { readdirSync, readFileSync } from "node:fs";
@@ -197,6 +201,16 @@ function listRustFiles(dir) {
     const p = join(dir, entry.name);
     if (entry.isDirectory()) out.push(...listRustFiles(p));
     else if (entry.name.endsWith(".rs")) out.push(p);
+  }
+  return out;
+}
+
+function listTsFiles(dir) {
+  const out = [];
+  for (const entry of readdirSync(dir, { withFileTypes: true })) {
+    const p = join(dir, entry.name);
+    if (entry.isDirectory()) out.push(...listTsFiles(p));
+    else if (entry.name.endsWith(".ts") || entry.name.endsWith(".tsx")) out.push(p);
   }
   return out;
 }
@@ -615,6 +629,107 @@ function compareTaggedEnumWithAlias(entry, rustDef, tsDef, unitEnums, tsTypes, e
   }
 }
 
+// ── invoke 命令名对齐 ───────────────────────────────────────
+
+/** src-tauri 里 `#[tauri::command]` 标注的命令名（= fn 名）。属性与 fn 之间
+ * 允许夹文档注释与其他属性；夹到别的项就视为属性没有悬挂对象（不成立）。 */
+function collectRustCommands() {
+  const out = new Map(); // 命令名 → 文件
+  for (const file of listRustFiles(join(ROOT, "src-tauri/src"))) {
+    const lines = readFileSync(file, "utf8").split("\n");
+    let pending = false;
+    for (const raw of lines) {
+      const line = stripLineComment(raw).trim();
+      // 命令属性先行判断：它以 # 开头，不能落进下面的通用注释跳过分支。
+      if (line.startsWith("#[tauri::command")) {
+        pending = true;
+        continue;
+      }
+      if (line === "" || line.startsWith("#") || line.startsWith("///") || line.startsWith("//")) {
+        continue;
+      }
+      if (pending) {
+        const m = /^(?:pub(?:\([^)]*\))?\s+)?(?:async\s+)?fn\s+([a-z_][a-z0-9_]*)/.exec(line);
+        if (m !== null) out.set(m[1], file);
+        pending = false;
+        continue;
+      }
+    }
+  }
+  return out;
+}
+
+/** generate_handler![…] 里注册的命令名（`commands::x` 取末段）。 */
+function collectRegisteredCommands() {
+  const text = readFileSync(join(ROOT, "src-tauri/src/lib.rs"), "utf8");
+  const start = text.indexOf("generate_handler![");
+  if (start === -1) throw new Error("lib.rs: 找不到 generate_handler![…]");
+  let depth = 0;
+  let end = -1;
+  for (let i = start + "generate_handler".length; i < text.length; i++) {
+    if (text[i] === "[") depth++;
+    else if (text[i] === "]") {
+      depth--;
+      if (depth === 0) {
+        end = i;
+        break;
+      }
+    }
+  }
+  if (end === -1) throw new Error("lib.rs: generate_handler 的 […] 没配平");
+  const inner = text.slice(start + "generate_handler![".length, end);
+  return new Set(
+    splitTopLevel(inner, [","])
+      .filter((s) => s !== "")
+      .map((s) => s.split("::").pop()),
+  );
+}
+
+/** 前端 `invoke("…")` 的命令名（`plugin:` 前缀是插件命令，不参与对齐）。 */
+function collectTsInvokedCommands() {
+  const out = new Map(); // 命令名 → 文件
+  for (const file of listTsFiles(join(ROOT, "src"))) {
+    const cleaned = readFileSync(file, "utf8")
+      .replace(/\/\*[\s\S]*?\*\//g, "")
+      .split("\n")
+      .map(stripLineComment)
+      .join("\n");
+    const re = /\binvoke(?:\s*<[^>]*>)?\(\s*(?:"([^"]+)"|'([^']+)')/g;
+    let m;
+    while ((m = re.exec(cleaned)) !== null) {
+      const name = m[1] ?? m[2];
+      if (!name.startsWith("plugin:")) out.set(name, file);
+    }
+  }
+  return out;
+}
+
+function verifyCommandParity(errors) {
+  const defined = collectRustCommands();
+  const registered = collectRegisteredCommands();
+  const invoked = collectTsInvokedCommands();
+
+  for (const name of defined.keys()) {
+    if (!registered.has(name)) {
+      errors.push(`命令 ${name}（${defined.get(name)}）定义了但没进 generate_handler`);
+    }
+  }
+  for (const name of registered) {
+    if (!defined.has(name)) {
+      errors.push(`generate_handler 注册了命令 ${name}，但 src-tauri 里没有 #[tauri::command] 定义`);
+    }
+    if (!invoked.has(name)) {
+      errors.push(`命令 ${name} 已注册但前端没有 invoke 调用（死命令或漏了 api.ts 绑定）`);
+    }
+  }
+  for (const [name, file] of invoked) {
+    if (!registered.has(name)) {
+      errors.push(`前端 invoke("${name}")（${file}）没有对应的已注册命令——改名/删除漏改前端`);
+    }
+  }
+  return { defined, registered, invoked };
+}
+
 // ── 主流程 ──────────────────────────────────────────────────
 
 function main() {
@@ -657,6 +772,8 @@ function main() {
     }
   }
 
+  const { defined, registered, invoked } = verifyCommandParity(errors);
+
   if (errors.length > 0) {
     console.error(`api-parity 校验失败（${errors.length} 处）：\n`);
     for (const e of errors) console.error(`  ✗ ${e}`);
@@ -665,7 +782,9 @@ function main() {
     );
     process.exit(1);
   }
-  console.log(`api-parity: ${PARITY.length} 个类型逐字段校验通过`);
+  console.log(
+    `api-parity: ${PARITY.length} 个类型逐字段校验通过；invoke 命令 ${defined.size} 定义 / ${registered.size} 注册 / ${invoked.size} 调用对齐`,
+  );
 }
 
 main();

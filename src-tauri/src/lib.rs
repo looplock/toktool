@@ -183,7 +183,6 @@ pub fn run() {
         // 限定为 WorkBuddy 的两个附件目录，其他路径一律拒绝。
         .plugin(tauri_plugin_opener::init())
         .invoke_handler(tauri::generate_handler![
-            commands::app_version,
             commands::scan_trigger,
             commands::scan_backlog,
             commands::overview,
