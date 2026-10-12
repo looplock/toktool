@@ -39,9 +39,15 @@ impl GatewayHandle {
     /// 配置端口被占用时自动回落到系统分配的临时端口（仍绑回环），实际地址以
     /// [`Self::listen`] 为准。
     pub async fn start(config_path: PathBuf, db_path: PathBuf) -> Result<Self> {
-        // 配置文件缺失时先落一份骨架，"启动服务"不依赖用户先手写文件。
-        super::config::ensure_default(&config_path)?;
-        let config = Arc::new(ConfigHandle::load(&config_path)?);
+        // 配置落盘骨架（含 fsync）+ 读入校验是同步文件 IO，挪进阻塞池不占 worker。
+        let config = Arc::new(
+            tokio::task::spawn_blocking(move || -> Result<ConfigHandle> {
+                super::config::ensure_default(&config_path)?;
+                ConfigHandle::load(&config_path)
+            })
+            .await
+            .map_err(|e| Error::Internal(format!("config load join: {e}")))??,
+        );
         let (listener, listen) = bind_with_fallback(config.current().listen).await?;
         let (shutdown_tx, shutdown_rx) = tokio::sync::oneshot::channel();
         let task = tokio::spawn(async move {
@@ -327,8 +333,15 @@ pub async fn serve_on(
     Ok(())
 }
 
+/// 热重载挪进阻塞池：每请求一次 stat、变更时整读 + 解析都是同步文件 IO，
+/// 不占 tokio worker（与计量写入同款纪律）。失败照旧静默——沿用旧快照服务。
+async fn reload_config_if_changed(config: &Arc<ConfigHandle>) {
+    let config = Arc::clone(config);
+    let _ = tokio::task::spawn_blocking(move || config.reload_if_changed()).await;
+}
+
 async fn models_entry(State(state): State<Arc<GatewayState>>, headers: HeaderMap) -> Response {
-    let _ = state.config.reload_if_changed();
+    reload_config_if_changed(&state.config).await;
     let snapshot = state.config.current();
     let authorized = extract_token(&headers)
         .and_then(|token| {
@@ -473,7 +486,7 @@ async fn proxy(
     let ts = now_ms();
 
     // 热重载失败（用户改坏了配置）不拦请求：沿用旧快照继续服务。
-    let _ = state.config.reload_if_changed();
+    reload_config_if_changed(&state.config).await;
     let snapshot = state.config.current();
 
     let Some(token) = extract_token(&headers) else {

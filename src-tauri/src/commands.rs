@@ -640,14 +640,19 @@ pub fn shell_get_config(
 }
 
 /// 被禁用工具清单镜像进壳配置：扫描循环每轮从壳配置读取，窗口销毁后前端
-/// 传不了参，清单必须由壳自己持有。async 命令离开主线程执行——update 的
-/// 落盘路径有 fsync，同步命令跑在主线程会把每次勾选切换都变成 UI 卡顿。
+/// 传不了参，清单必须由壳自己持有。update 的落盘路径有 fsync——阻塞 IO 挪进
+/// spawn_blocking，与同文件"阻塞一律 spawn_blocking"的纪律对齐。
 #[tauri::command]
 pub async fn shell_set_disabled_tools(
     state: State<'_, crate::shell_config::ShellConfigState>,
     disabled: Vec<String>,
 ) -> Result<(), String> {
-    state.update(|c| c.disabled_tools = disabled);
+    let state = state.inner().clone();
+    tauri::async_runtime::spawn_blocking(move || {
+        state.update(|c| c.disabled_tools = disabled);
+    })
+    .await
+    .map_err(|_| ErrorCode::Internal.as_str().to_string())?;
     Ok(())
 }
 
@@ -656,18 +661,21 @@ pub async fn shell_set_disabled_tools(
 #[tauri::command]
 pub async fn tray_set_enabled(app: tauri::AppHandle, tray: bool) -> Result<(), String> {
     // set_enabled 链含 ensure_main_window 的 WebviewWindowBuilder::build()
-    // （百毫秒级）+ 托盘主线程往返 + fsync，是重量级阻塞操作——整体挪进
-    // spawn_blocking，与同文件"阻塞一律 spawn_blocking"的纪律对齐。
+    // （百毫秒级）+ 托盘主线程往返 + fsync，是重量级阻塞操作——连同"切成功
+    // 才落盘"的偏好写入整体挪进 spawn_blocking，与同文件"阻塞一律
+    // spawn_blocking"的纪律对齐。
     tauri::async_runtime::spawn_blocking({
         let app = app.clone();
-        move || crate::tray_ops::set_enabled(&app, tray)
+        move || -> Result<(), String> {
+            crate::tray_ops::set_enabled(&app, tray)?;
+            // 只有切成功才落盘，偏好与实际状态保持一致。
+            app.state::<crate::shell_config::ShellConfigState>()
+                .update(|c| c.tray = tray);
+            Ok(())
+        }
     })
     .await
-    .map_err(|_| ErrorCode::Internal.as_str().to_string())??;
-    // 只有切成功才落盘，偏好与实际状态保持一致。
-    app.state::<crate::shell_config::ShellConfigState>()
-        .update(|c| c.tray = tray);
-    Ok(())
+    .map_err(|_| ErrorCode::Internal.as_str().to_string())?
 }
 
 /// 菜单文案跟随界面语言；前端在启动与语言切换时调用。
