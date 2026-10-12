@@ -34,6 +34,8 @@ tauri = { workspace = true, features = ["protocol-asset", "tray-icon"] }
 tauri-plugin-single-instance.workspace = true
 tauri-plugin-autostart.workspace = true
 tauri-plugin-opener.workspace = true
+log.workspace = true
+tauri-plugin-log.workspace = true
 
 [build-dependencies]
 tauri-build.workspace = true

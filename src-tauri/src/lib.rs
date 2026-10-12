@@ -146,6 +146,26 @@ struct TrayMenu {
 /// `visible:false`，setup 无条件显示——低功耗只在会话内生效，不跨启动记忆）。
 pub fn run() {
     tauri::Builder::default()
+        // 诊断日志最先注册：setup（托盘降级）与扫描循环的早期事件都要能落日志。
+        // 文件落平台标准日志目录（含轮转），是 release 构建唯一可见的诊断出口
+        // ——Windows 无控制台、macOS Finder 启动 stderr 无处可去；stdout 供 dev。
+        .plugin(
+            tauri_plugin_log::Builder::new()
+                .targets([
+                    tauri_plugin_log::Target::new(tauri_plugin_log::TargetKind::LogDir {
+                        file_name: None,
+                    }),
+                    tauri_plugin_log::Target::new(tauri_plugin_log::TargetKind::Stdout),
+                ])
+                .level(if cfg!(debug_assertions) {
+                    log::LevelFilter::Debug
+                } else {
+                    log::LevelFilter::Info
+                })
+                .max_file_size(1_000_000)
+                .rotation_strategy(tauri_plugin_log::RotationStrategy::KeepOne)
+                .build(),
+        )
         // 单实例：第二个进程把已有窗口唤到前台（销毁态则重建），而不是再开一个
         // 写同一个 SQLite 库的进程。
         .plugin(tauri_plugin_single_instance::init(|app, _args, _cwd| {
@@ -238,7 +258,7 @@ pub fn run() {
             // 托盘建不出来（如 Linux 缺 libayatana-appindicator3）时降级为
             // 无托盘继续跑：可选功能不拦启动，后续路径见各处 tray_by_id 判空。
             if let Err(err) = build_tray(app.handle().clone()) {
-                eprintln!("托盘初始化失败，降级为无托盘模式: {err}");
+                log::warn!("托盘初始化失败，降级为无托盘模式: {err}");
             }
             // 窗口配置成不可见创建，这里再决定去留：低功耗只在会话内生效，
             // 启动一律按非低功耗打开（顺带清掉上次会话可能残留的落盘状态）。
@@ -366,7 +386,7 @@ fn exit_low_power(app: &AppHandle) {
         .update(|c| c.low_power = false);
     sync_low_power_item(app, false);
     if let Err(err) = ensure_main_window(app) {
-        eprintln!("重建主窗口失败: {err}");
+        log::error!("重建主窗口失败: {err}");
     }
 }
 
@@ -400,7 +420,7 @@ fn build_tray(app: AppHandle) -> tauri::Result<()> {
             "show" => exit_low_power(app),
             "scan" => {
                 if let Err(err) = trigger_scan(app) {
-                    eprintln!("触发扫描失败: {err}");
+                    log::warn!("触发扫描失败: {err}");
                 }
             }
             "low-power" => {

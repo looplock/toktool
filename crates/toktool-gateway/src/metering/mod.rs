@@ -57,7 +57,7 @@ pub fn record(db_path: &Path, facts: MeterFacts) {
                     upstream: Some(facts.upstream.clone()),
                     token_hash: Some(facts.token_hash.to_vec()),
                 }) {
-                    eprintln!("toktool-gateway: metering insert failed: {err}");
+                    log::warn!("metering insert failed: {err}");
                 }
                 return;
             }
@@ -66,7 +66,7 @@ pub fn record(db_path: &Path, facts: MeterFacts) {
         std::thread::sleep(std::time::Duration::from_millis(50));
     }
     if let Some(err) = open_error {
-        eprintln!("toktool-gateway: metering open failed: {err}");
+        log::warn!("metering open failed: {err}");
     }
 }
 

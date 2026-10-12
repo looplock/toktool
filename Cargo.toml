@@ -40,6 +40,11 @@ trash = "5"
 # 网关访问令牌：随机段生成（哈希校验在网关侧，明文只在签发时经 IPC 回一次）
 rand = "0.9"
 
+# 诊断门面：库侧（gateway）发日志，后端由壳的 tauri-plugin-log 接管——
+# release 构建的 Windows（无控制台）与 macOS Finder 启动（stderr 无处可去）
+# 只有日志文件才是可见出口
+log = "0.4"
+
 # 扫描管线：目录遍历、内容指纹、RFC3339 时间戳解析（统一 UTC 落库）；clock 仅为
 # codebuddy——它的日志时间戳是本地时间且无时区后缀，是唯一需要本地时区换算的来源
 walkdir = "2.5"
@@ -73,6 +78,9 @@ tauri-plugin-single-instance = "2.4"
 tauri-plugin-autostart = "2.5"
 # 会话详情里"打开"图片附件（opener:allow-open-path，能力里限定两个附件目录）
 tauri-plugin-opener = "2.5"
+
+# 日志后端：文件落平台标准日志目录（含轮转），stdout 供 dev
+tauri-plugin-log = "2"
 
 [profile.dev]
 # 省磁盘；代价是断点看不到变量值，需要时临时改回 debug = true
