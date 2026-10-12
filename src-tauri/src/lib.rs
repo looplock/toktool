@@ -132,7 +132,11 @@ impl TranscriptBuildSlot {
 }
 
 /// 托盘菜单项句柄：命令要用它改勾选态与文案（跟随界面语言），存 manage 里。
-/// 只在默认运行时（Wry）下使用，不泛型化。
+/// 只在默认运行时（Wry）下使用，不泛型化。外面套一层可替换的槽位：Linux 的
+/// appindicator 不支持隐藏图标，关托盘走"整体移除"，再开启时整体重建——重建
+/// 会换出全新的菜单句柄，manage 只进不出，句柄必须经槽位换新才不会指向死项。
+struct TrayMenuCell(Mutex<Option<TrayMenu>>);
+
 struct TrayMenu {
     show: MenuItem<tauri::Wry>,
     scan: MenuItem<tauri::Wry>,
@@ -175,8 +179,7 @@ pub fn run() {
         .plugin(tauri_plugin_autostart::init(
             tauri_plugin_autostart::MacosLauncher::LaunchAgent,
             None,
-        ))
-        // 会话详情图片附件的"打开"：opener 的 open_path 权限在能力文件里
+        )) // 会话详情图片附件的"打开"：opener 的 open_path 权限在能力文件里
         // 限定为 WorkBuddy 的两个附件目录，其他路径一律拒绝。
         .plugin(tauri_plugin_opener::init())
         .invoke_handler(tauri::generate_handler![
@@ -257,8 +260,26 @@ pub fn run() {
             spawn_scan_loop(app.handle().clone(), state.clone());
             // 托盘建不出来（如 Linux 缺 libayatana-appindicator3）时降级为
             // 无托盘继续跑：可选功能不拦启动，后续路径见各处 tray_by_id 判空。
-            if let Err(err) = build_tray(app.handle().clone()) {
+            if let Err(err) = build_tray(app.handle().clone(), state.get().tray) {
                 log::warn!("托盘初始化失败，降级为无托盘模式: {err}");
+            }
+            // 自启动注册自愈：登记的是启用时刻的安装路径，之后移动安装位置
+            // （macOS 拖 .app、Windows 剪切目录、Linux 二进制挪窝）会让登录项
+            // 指向旧路径而静默失效。已启用则用当前路径重登记一次；AppImage
+            // 场景插件登记的本来就是持久的 APPIMAGE 源路径，重登记无害。
+            // 失败不致命：登录项停留在旧路径，仅本次未自愈。
+            {
+                use tauri_plugin_autostart::ManagerExt as _;
+                let autolaunch = app.autolaunch();
+                match autolaunch.is_enabled() {
+                    Ok(true) => {
+                        if let Err(err) = autolaunch.enable() {
+                            log::warn!("刷新自启动注册失败: {err}");
+                        }
+                    }
+                    Ok(false) => {}
+                    Err(err) => log::warn!("查询自启动状态失败: {err}"),
+                }
             }
             // 窗口配置成不可见创建，这里再决定去留：低功耗只在会话内生效，
             // 启动一律按非低功耗打开（顺带清掉上次会话可能残留的落盘状态）。
@@ -390,12 +411,13 @@ fn exit_low_power(app: &AppHandle) {
     }
 }
 
-/// 托盘无条件创建、可见性按壳偏好：运行时开关走 `set_visible`，免掉"关了再开
-/// 要重建菜单/事件绑定"的麻烦。失败返回 Err，由 setup 降级为无托盘模式。
+/// 托盘无条件创建、可见性由调用方给定：启动按壳偏好，命令重建（Linux 关再开）
+/// 传 `true`——重建发生在偏好落盘之前，不能反过来读偏好。免掉"关了再开要重建
+/// 菜单/事件绑定"的麻烦只在支持隐藏的平台成立（Windows/macOS 走 set_visible）。
+/// 失败返回 Err，由调用方降级为无托盘模式。
 /// 菜单文案是中文缺省——前端起来后会按当前界面
 /// 语言经 `tray_set_texts` 校正，这里保证前端未起或纯托盘场景也有可读菜单。
-fn build_tray(app: AppHandle) -> tauri::Result<()> {
-    let visible = app.state::<ShellConfigState>().get().tray;
+fn build_tray(app: AppHandle, visible: bool) -> tauri::Result<()> {
     let low_power = app.state::<ShellConfigState>().get().low_power;
     let show = MenuItem::with_id(&app, "show", "显示主窗口", true, None::<&str>)?;
     let scan = MenuItem::with_id(&app, "scan", "立即扫描", true, None::<&str>)?;
@@ -415,6 +437,19 @@ fn build_tray(app: AppHandle) -> tauri::Result<()> {
         .tooltip(toktool_core::paths::PRODUCT_NAME)
         .menu(&menu)
         .show_menu_on_left_click(false)
+        // 左键唤起主窗口。Linux 的 appindicator 不向应用投递点击事件、左键
+        // 弹菜单由桌面环境接手（`show_menu_on_left_click` 被忽略，平台固有
+        // 行为）——菜单里的"显示主窗口"兜底，此处理器在 Linux 上收不到事件。
+        .on_tray_icon_event(|tray, event| {
+            if let tauri::tray::TrayIconEvent::Click {
+                button: tauri::tray::MouseButton::Left,
+                button_state: tauri::tray::MouseButtonState::Up,
+                ..
+            } = event
+            {
+                exit_low_power(tray.app_handle());
+            }
+        })
         .on_menu_event(|app, event| match event.id.as_ref() {
             // 显示主窗口即退出低功耗：两者是同一状态的两面。
             "show" => exit_low_power(app),
@@ -448,30 +483,44 @@ fn build_tray(app: AppHandle) -> tauri::Result<()> {
     if let Some(tray) = app.tray_by_id(TRAY_ID) {
         tray.set_visible(visible)?;
     }
-    app.manage(TrayMenu {
+    let menu = TrayMenu {
         show,
         scan,
         low_power: low_power_item,
         quit,
-    });
+    };
+    match app.try_state::<TrayMenuCell>() {
+        // 重建路径：换出全新的菜单句柄，旧句柄随被移除的托盘作废。
+        Some(cell) => *cell.0.lock().expect("托盘菜单槽位锁中毒") = Some(menu),
+        None => {
+            app.manage(TrayMenuCell(Mutex::new(Some(menu))));
+        }
+    }
     Ok(())
 }
 
 /// 低功耗勾选态的唯一写入口：托盘菜单、窗口事件与命令三条路都经它，勾选框与
 /// ShellConfigState 永不漂移。
 fn sync_low_power_item(manager: &AppHandle, low_power: bool) {
-    if let Some(items) = manager.try_state::<TrayMenu>() {
-        let _ = items.low_power.set_checked(low_power);
+    if let Some(cell) = manager.try_state::<TrayMenuCell>() {
+        let guard = cell.0.lock().expect("托盘菜单槽位锁中毒");
+        if let Some(items) = guard.as_ref() {
+            let _ = items.low_power.set_checked(low_power);
+        }
     }
 }
 
 /// 供命令模块转调的托盘操作；托盘内部状态（菜单句柄等）不出本模块。
 pub(crate) mod tray_ops {
-    use super::{TRAY_ID, TrayMenu, exit_low_power};
+    use super::{TRAY_ID, TrayMenuCell, build_tray, exit_low_power};
     use tauri::Manager;
 
     /// 托盘显隐切换。托盘内部状态（菜单句柄等）不出本模块。
     /// 关托盘时若在低功耗（无窗状态会失去唯一恢复路径），先重建窗口再降级。
+    ///
+    /// Linux 的 appindicator 不支持隐藏已注册的图标（`set_visible(false)` 可能
+    /// 报错或静默无效）：隐藏失败降级为整体移除——图标一定消失；再开启时托盘
+    /// 已不在，走整体重建。Windows/macOS 隐藏可靠，set_visible 原路往返。
     pub fn set_enabled(app: &tauri::AppHandle, enabled: bool) -> Result<(), String> {
         if !enabled {
             exit_low_power(app);
@@ -479,16 +528,29 @@ pub(crate) mod tray_ops {
         let tray = match app.tray_by_id(TRAY_ID) {
             Some(tray) => tray,
             // 托盘从未建成（如 Linux 缺系统库）：关=无事可做，返回成功让用户
-            // 至少能把偏好拨回关闭；开=真做不到，报错由前端回滚开关。
+            // 至少能把偏好拨回关闭；开=尝试整体重建（多半仍失败，报错由前端
+            // 回滚开关）。
             None if !enabled => return Ok(()),
-            None => return Err("托盘尚未初始化".to_string()),
+            None => return build_tray(app.clone(), true).map_err(|e| e.to_string()),
         };
-        tray.set_visible(enabled).map_err(|e| e.to_string())
+        if tray.set_visible(enabled).is_ok() {
+            return Ok(());
+        }
+        if enabled {
+            return Err("托盘显示失败".to_string());
+        }
+        // 隐藏不了就拆掉：remove 对 appindicator 同样可靠。
+        app.remove_tray_by_id(TRAY_ID);
+        Ok(())
     }
 
     /// 菜单文案跟随界面语言；失败不致命（菜单停留在上一语言）。
     pub fn set_texts(app: &tauri::AppHandle, show: &str, scan: &str, low_power: &str, quit: &str) {
-        let Some(items) = app.try_state::<TrayMenu>() else {
+        let Some(cell) = app.try_state::<TrayMenuCell>() else {
+            return;
+        };
+        let guard = cell.0.lock().expect("托盘菜单槽位锁中毒");
+        let Some(items) = guard.as_ref() else {
             return;
         };
         let _ = items.show.set_text(show);
