@@ -78,7 +78,7 @@ user-visible change; design rationale lives in commit messages and docs/.
 | Platform / 平台 | Asset / 产物 |
 |---|---|
 | Windows | `Toktool_0.1.0_x64-setup.exe` |
-| macOS (Apple Silicon) | `Toktool_0.1.0_aarch64.dmg` |
+| macOS (Apple Silicon) | `Toktool_0.1.0_aarch64.dmg` / `Toktool_aarch64.app.tar.gz`（解压即用的 .app） |
 | Linux | `Toktool_0.1.0_amd64.AppImage` / `Toktool_0.1.0_amd64.deb` |
 
 ⚠️ Installers are **not code-signed yet**: Windows SmartScreen and macOS Gatekeeper show a
