@@ -138,3 +138,16 @@ jobs:
           releaseDraft: true
           prerelease: false
           args: --bundles ${{ matrix.bundles }}
+
+      # 便携版 exe：前端资源已内嵌进主二进制，绿色版可直接运行（依赖系统
+      # WebView2）。tauri-action 只上传 NSIS 安装器，这里补传 zip。
+      - name: Upload portable exe
+        if: matrix.os == 'windows-latest'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        shell: pwsh
+        run: |
+          $version = $env:GITHUB_REF_NAME.TrimStart("v")
+          $zip = "Toktool_${version}_x64_portable.zip"
+          Compress-Archive -Path target/release/toktool.exe -DestinationPath $zip
+          gh release upload "$env:GITHUB_REF_NAME" "$zip" --clobber
