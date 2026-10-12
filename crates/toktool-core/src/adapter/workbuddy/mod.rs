@@ -3,10 +3,11 @@
 //! `settings.yaml`、`mcp.json` 等配置与凭据不在扫描范围，绝不打开。
 //!
 //! 项目目录：日志行不带 cwd，但日志按项目分目录存放——目录名是编码后的项目
-//! 路径（`d-Work-Demo-App` → `D:\Work\Demo\App`，
-//! 见 [`decode_project_dir`]），从来源文件路径解码。子智能体日志深两层
-//! （`<编码项目>/<会话id>/subagents/agent-*.jsonl`），沿父目录向上找编码目录，
-//! 见 [`WorkBuddyAdapter::project_dir_of`]。
+//! 路径，Windows 形态 `d-Work-Demo-App` → `D:\Work\Demo\App`，POSIX 形态
+//! `-home-user-proj` → `/home/user/proj`（前导 `-` 可带可不带），按名字形状
+//! 路由解码（见 [`decode_project_dir`]），从来源文件路径解码。子智能体日志
+//! 深两层（`<编码项目>/<会话id>/subagents/agent-*.jsonl`），沿父目录向上找
+//! 编码目录，见 [`WorkBuddyAdapter::project_dir_of`]。
 //!
 //! 格式（实测）：`type:"message"`（顶层 role/content）与 `type:"function_call"`
 //! （`message` 字段只装 usage）两类行携带用量；模型在 `providerData.model`。
@@ -325,23 +326,50 @@ fn parse_raw_line(raw: RawLine, prev_boundary: Option<i64>) -> LineParse {
 }
 
 /// 编码目录名 → 项目路径。编码规则（实测）：路径分隔符（`\` 与 `/`）替换成
-/// `-`，首段是盘符（`d-Work-Demo-App` → `D:\Work\Demo\App`）。
+/// `-`，Windows 形态首段是盘符（`d-Work-Demo-App` → `D:\Work\Demo\App`），
+/// POSIX 形态前导 `-` 表示根（`-home-user-proj` → `/home/user/proj`，可不带）。
 /// 名字里的 `-` 与分隔符不可区分（`Client-Alpha`、时间戳目录），纯文本解码有
 /// 歧义——用文件系统消歧：从左到右贪心匹配真实存在的目录，整段（保留 `-`）
-/// 优先于切分；验证失败（项目已删、盘不在了）退回朴素解码：全部 `-` 视作
-/// 分隔符。退化结果可能不精确，但稳定可读，足够分组与筛选。
+/// 优先于切分。
+///
+/// 解码按**名字形状**路由而非按宿主平台分支：形状是名字内在的属性，mac 数据
+/// 目录拷到 Windows 扫描也照常解。Windows 形态验证失败（项目已删、盘不在了）
+/// 退回朴素解码：全部 `-` 视作分隔符——可能不精确，但稳定可读，足够分组与筛选。
+/// POSIX 形态**仅验证成功才产出，无朴素回退**：[`WorkBuddyAdapter::project_dir_of`]
+/// 沿祖先取首个解码成功的目录，`subagents`、会话 uuid 这类结构性名字若被回退
+/// 放行，会抢在真正的编码项目目录之前污染归属；项目已删的会话 `project_dir`
+/// 留空（历史行为一致）。
 fn decode_project_dir(encoded: &str) -> Option<String> {
-    let (drive, rest) = encoded.split_once('-')?;
-    let letter = drive.chars().next()?;
-    if drive.len() != 1 || !letter.is_ascii_alphabetic() {
-        return None;
-    }
+    let Some((letter, rest)) = windows_drive_shape(encoded) else {
+        // POSIX 形态。Windows 宿主的 "/" 是盘符相对路径，会误配 C:\ 下的同名
+        // 结构（如 \Users），故跨宿主拷来的 POSIX 形态数据解不出，保持 None。
+        let rest = encoded.strip_prefix('-')?;
+        if rest.is_empty() || !rest.contains('-') || cfg!(windows) {
+            return None;
+        }
+        return decode_segments(rest, Path::new("/"))
+            .map(|path| path.to_string_lossy().into_owned());
+    };
     // 编码用小写盘符，真实路径是大写（`e-…` → `E:\…`），FS 验证与展示都要对上。
     let root = PathBuf::from(format!("{}:\\", letter.to_ascii_uppercase()));
-    match decode_segments(rest, &root) {
-        Some(path) => Some(path.to_string_lossy().into_owned()),
-        None => Some(format!("{}{}", root.display(), rest.replace('-', "\\"))),
+    if let Some(path) = decode_segments(rest, &root) {
+        return Some(path.to_string_lossy().into_owned());
     }
+    // 非 Windows 宿主上盘符验证必然失败：退而按 POSIX 形态试一次（真有
+    // `/e-…` 顶级项目的兜底），仍不成才走朴素回退。
+    if !cfg!(windows)
+        && let Some(path) = decode_segments(rest, Path::new("/"))
+    {
+        return Some(path.to_string_lossy().into_owned());
+    }
+    Some(format!("{}{}", root.display(), rest.replace('-', "\\")))
+}
+
+/// Windows 形态识别：首段恰为单个 ASCII 字母（`e-…` 的盘符），其余形状归 POSIX。
+fn windows_drive_shape(encoded: &str) -> Option<(char, &str)> {
+    let (drive, rest) = encoded.split_once('-')?;
+    let letter = drive.chars().next()?;
+    (drive.len() == 1 && letter.is_ascii_alphabetic()).then_some((letter, rest))
 }
 
 /// 在 `current` 下匹配 `rest` 的真实目录段：每个 `-` 都是候选切点，最长段
@@ -1140,15 +1168,9 @@ mod tests {
     /// 项目目录从存放目录名解码（真实目录验证消歧）。在临时目录里造
     /// projects/<编码名>/sess.jsonl 的真实结构：叶子项目名带 `-`，
     /// 贪心匹配必须把它整段留下而不是切成两层。
-    /// FS 消歧的前提是解码出的真实目录在扫描机上存在——生产数据是
-    /// Windows 形态（编码名由盘符路径而来），故本测试仅在 Windows 宿主
-    /// 运行；其他宿主走朴素解码回退（见下方平台无关测试与
-    ///
     /// FS 消歧的前提是解码出的真实目录在扫描机上存在——生产数据是 Windows
     /// 形态（编码名由盘符路径而来），故本测试仅在 Windows 宿主运行；其他
     /// 宿主走朴素解码回退（平台无关行为由 naive 回退测试覆盖）。
-    #[cfg(windows)]
-    /// [`decode_segments`] 的平台无关贪心测试）。
     #[cfg(windows)]
     #[test]
     fn project_dir_decodes_from_directory_name() {
@@ -1263,5 +1285,34 @@ mod tests {
         );
         // 不是"盘符-"开头的目录名解不出盘符，返回 None 不编造。
         assert_eq!(decode_project_dir("not-a-drive"), None);
+    }
+
+    /// POSIX 形态仅验证成功才产出：结构性祖先名（`subagents`、会话 uuid）、
+    /// 无 `-` 的单段、不存在的真实路径一律 None，绝无朴素回退——防
+    /// `project_dir_of` 沿祖先取首个 Some 时被劫持。平台无关：Windows 宿主
+    /// 上 POSIX 形态直接不验证（"/" 是盘符相对路径），其余宿主验证必然落空。
+    #[test]
+    fn posix_shape_never_falls_back_to_naive() {
+        assert_eq!(decode_project_dir("-home-user-proj"), None);
+        assert_eq!(decode_project_dir("home-user-proj"), None);
+        assert_eq!(decode_project_dir("subagents"), None);
+        assert_eq!(decode_project_dir("Users"), None);
+        assert_eq!(
+            decode_project_dir("01a2b3c4-1111-2222-3333-444455556666"),
+            None
+        );
+        assert_eq!(decode_project_dir("-"), None);
+    }
+
+    /// [`decode_segments`] 平台无关贪心验证：临时目录作根，带 `-` 的叶子
+    /// 必须整段保留（真实目录存在时整段优先于切分），不切成多层。
+    #[test]
+    fn decode_segments_keeps_hyphenated_leaf_intact() {
+        let root = std::env::temp_dir().join(format!("toktool-wb-seg-{}", std::process::id()));
+        let leaf = root.join("home").join("user").join("my-proj");
+        std::fs::create_dir_all(&leaf).unwrap();
+        let decoded = decode_segments("home-user-my-proj", &root).expect("真实层级必可解");
+        assert_eq!(decoded, leaf);
+        std::fs::remove_dir_all(&root).unwrap();
     }
 }
