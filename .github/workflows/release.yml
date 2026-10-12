@@ -1,0 +1,140 @@
+name: Release
+
+# 发布线：推 v* tag 触发——先校验版本三处一致 + tag 匹配，再三平台并行构建，汇总 Draft Release。
+# 分工：bundle.targets "all" 只管本地构建（宿主原生格式）；发布产物清单由 --bundles 在此钉死。
+# 手工 dispatch 只跑版本校验冒烟：构建与建 Release 都钉在 tag 触发上，分支名永远到不了
+# tauri-action（否则它会拿分支名当 tag 建 Draft Release）。
+on:
+  push:
+    tags: ["v*"]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+env:
+  CARGO_TERM_COLOR: always
+
+# 不 cancel：同 tag 重推时旧流水线的 Draft 资产竞争比串行等待更糟。
+concurrency:
+  group: release-${{ github.ref_name }}
+  cancel-in-progress: false
+
+jobs:
+  verify-version:
+    name: Verify version sources
+    runs-on: ubuntu-latest
+    outputs:
+      # 发布正文的单一事实源是 CHANGELOG 对应版本的段落（双语，见 CHANGELOG
+      # 头部契约）；tag 触发时缺失段落即 fail-closed，拦住空壳 Release。
+      body: ${{ steps.notes.outputs.body }}
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+
+      - name: Check the three version sources agree with the tag
+        run: |
+          set -euo pipefail
+          if [ "${GITHUB_REF_TYPE}" = "tag" ]; then
+            node scripts/verify-release-version.mjs --tag "${GITHUB_REF_NAME}"
+          else
+            node scripts/verify-release-version.mjs
+          fi
+
+      # 质量门禁随发布线再跑一遍：ci.yml 只在 push main / PR 触发，tag 指向的
+      # 提交可能从未跑过任何检查——没有这道闸，未测代码就能直接进三平台构建。
+      # pnpm 版本从 package.json 的 packageManager 字段读取。
+      - uses: pnpm/action-setup@f40ffcd9367d9f12939873eb1018b921a783ffaa # v4
+
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with:
+          node-version: 22
+          cache: pnpm
+
+      - name: Install Linux system dependencies
+        run: bash scripts/install-linux-deps.sh
+
+      - uses: dtolnay/rust-toolchain@89b12181fb390509a0842a86cc55eeb8eb928c1d # stable
+        with:
+          components: rustfmt, clippy
+
+      - uses: Swatinem/rust-cache@49a0bdc70d2e1b713ca9e2869b211fcce03d3c1c # v2
+
+      - name: Install JS dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Quality gate
+        run: pnpm check
+
+      - name: Frontend tests
+        run: pnpm test
+
+      - name: Rust tests
+        run: cargo test --workspace
+
+      - name: Extract release notes from CHANGELOG
+        if: github.ref_type == 'tag'
+        id: notes
+        run: |
+          {
+            echo 'body<<CHANGELOG_EOF'
+            node scripts/extract-release-notes.mjs "${GITHUB_REF_NAME}"
+            echo 'CHANGELOG_EOF'
+          } >> "$GITHUB_OUTPUT"
+
+  build:
+    name: Build (${{ matrix.os }})
+    needs: verify-version
+    # 只在 tag 触发时构建发版：dispatch 是版本校验冒烟，不该以分支名建 Release，
+    # 也不该白烧三个 runner 的工具链安装。
+    if: github.ref_type == 'tag'
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: ubuntu-latest
+            bundles: appimage,deb
+          - os: windows-latest
+            bundles: nsis
+          - os: macos-latest
+            bundles: app,dmg
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+
+      # pnpm 版本从 package.json 的 packageManager 字段读取。
+      - uses: pnpm/action-setup@f40ffcd9367d9f12939873eb1018b921a783ffaa # v4
+
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with:
+          node-version: 22
+          cache: pnpm
+
+      - uses: dtolnay/rust-toolchain@89b12181fb390509a0842a86cc55eeb8eb928c1d # stable
+
+      - uses: Swatinem/rust-cache@49a0bdc70d2e1b713ca9e2869b211fcce03d3c1c # v2
+
+      # 构建前确认 Cargo.lock 与清单同步：过期 lock 会在这里被 --locked 拦下，
+      # 而不是构建中途被静默改写、随安装包一起发出去。
+      - name: Check Cargo.lock is up to date
+        run: cargo fetch --locked
+
+      - name: Install Linux system dependencies
+        if: matrix.os == 'ubuntu-latest'
+        run: bash scripts/install-linux-deps.sh
+
+      - name: Install JS dependencies
+        run: pnpm install --frozen-lockfile
+
+      # tauri-action 会自己执行 beforeBuildCommand（pnpm build）再打包。
+      - uses: tauri-apps/tauri-action@fce9c6108b31ea247710505d3aaaa893ee6768d4 # v0
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          tagName: ${{ github.ref_name }}
+          releaseName: "Toktool ${{ github.ref_name }}"
+          # 来自 CHANGELOG 对应版本段落（verify job 已按 tag 校验过）；
+          # || 兜底只防 output 意外为空，正常路径不会走到。
+          releaseBody: ${{ needs.verify-version.outputs.body || 'See the assets below to download and install Toktool for your platform.' }}
+          releaseDraft: true
+          prerelease: false
+          args: --bundles ${{ matrix.bundles }}
