@@ -39,4 +39,6 @@ if (body === "") {
   console.error(`CHANGELOG.md section for ${version} is empty.`);
   process.exit(1);
 }
-process.stdout.write(body);
+// 结尾补换行：release.yml 把输出写进 GITHUB_OUTPUT 的 heredoc，若最后一行
+// 无换行，终止分隔符会拼进正文行，runner 报 "Matching delimiter not found"。
+process.stdout.write(`${body}\n`);
