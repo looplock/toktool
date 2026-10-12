@@ -1,5 +1,7 @@
 //! opencode 适配器：从 `~/.local/share/opencode/opencode.db`（工具自有的 SQLite，
-//! WAL 模式）读取会话与用量。没有可切行的日志文件，走 [`Adapter::read_db_source`]
+//! WAL 模式）读取会话与用量。该路径三平台同构（官方排障文档证实）：Windows 也
+//! 在 `%USERPROFILE%\.local\share\opencode`，不遵循系统各自的 App 目录惯例，
+//! 故无需按平台分支。没有可切行的日志文件，走 [`Adapter::read_db_source`]
 //! 每轮全量读取，指纹未变则整轮跳过，重扫入账靠行键去重。
 //! 红线：库里只 SELECT `session` / `message` 两张表，`credential`、`account` 等
 //! 凭据表绝不触碰；`auth.json`、`*.bak` 快照、`snapshot/`、`log/`、`bin/` 一律
