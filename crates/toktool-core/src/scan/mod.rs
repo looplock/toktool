@@ -160,14 +160,20 @@ pub(crate) fn scan_adapter(
             if !entry.file_type().is_file() || !adapter.is_session_log(path) {
                 continue;
             }
-            seen.insert(path.to_string_lossy().into_owned());
+            // 与 scanned_files 的路径键同口径归一化，missing 对账才不会因
+            // 分隔符/大小写漂移误报。
+            seen.insert(crate::storage::normalize_scanned_path(
+                &path.to_string_lossy(),
+            ));
             scan_file(storage, adapter, tool, path, &mut titled, report)?;
         }
     }
 
     // 数据库类来源：库路径登记进 seen，与文件走同一套 missing 对账。
     if let Some(source) = adapter.read_db_source()? {
-        seen.insert(source.path.to_string_lossy().into_owned());
+        seen.insert(crate::storage::normalize_scanned_path(
+            &source.path.to_string_lossy(),
+        ));
         scan_db_source(storage, adapter, tool, source, &mut titled, report)?;
     }
 
@@ -1584,8 +1590,9 @@ mod tests {
         let cursor: i64 = storage
             .conn()
             .query_row(
+                // 库里是归一化键，测试查询同口径。
                 "SELECT parsed_bytes FROM scanned_files WHERE path = ?1",
-                rusqlite::params![path_str],
+                rusqlite::params![crate::storage::normalize_scanned_path(&path_str)],
                 |r| r.get(0),
             )
             .unwrap();
@@ -1631,8 +1638,11 @@ mod tests {
         let cursor: i64 = storage
             .conn()
             .query_row(
+                // 库里是归一化键，测试查询同口径。
                 "SELECT parsed_bytes FROM scanned_files WHERE path = ?1",
-                rusqlite::params![log.to_string_lossy()],
+                rusqlite::params![crate::storage::normalize_scanned_path(
+                    &log.to_string_lossy()
+                )],
                 |r| r.get(0),
             )
             .unwrap();

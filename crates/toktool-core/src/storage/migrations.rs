@@ -493,4 +493,61 @@ pub(super) const MIGRATIONS: &[&str] = &[
     "
     CREATE INDEX IF NOT EXISTS idx_usage_session ON usage_records (session_id);
     ",
+    // v26：scanned_files.path 键归一化。同一日志文件可能以不同分隔符/大小写
+    // 形态落成多本账（唯一键大小写敏感，而 Windows 文件系统不敏感），重复行
+    // 分裂增量游标并让 missing 对账失真。迁移做两件事：① 按"归一化键相同 =
+    // 同一文件"分组合并——保留 updated_at 最新者（并列取 id 最小），先把
+    // sessions.source_file_id 改指保留行，再删除其余行（转录缓存经
+    // ON DELETE CASCADE 跟随清掉）；② 幸存行的 path 统一为归一化形态
+    // （分隔符一律 `/`；Windows 追加 ASCII 小写折叠，与 Rust 侧
+    // normalize_scanned_path 口径一致，SQLite lower() 同为 ASCII-only）。
+    // 不重置游标：重复行本就是同一文件的两本账，保留行自身的游标即为现状。
+    // 临时表只在迁移事务内存活，整批 BEGIN IMMEDIATE … COMMIT，失败即回滚。
+    MIGRATION_V26,
 ];
+
+/// v26 的归一化键表达式与收尾 UPDATE 因平台而异（仅 Windows 折叠大小写，
+/// 大小写敏感文件系统上不同大小写是真实的不同文件），整条 SQL 按 cfg 拆开。
+#[cfg(windows)]
+const MIGRATION_V26: &str = "
+CREATE TEMP TABLE sf_map AS
+SELECT id,
+       lower(replace(path, '\\', '/')) AS key,
+       FIRST_VALUE(id) OVER (
+           PARTITION BY lower(replace(path, '\\', '/'))
+           ORDER BY updated_at DESC, id ASC
+       ) AS keeper_id
+FROM scanned_files;
+
+UPDATE sessions
+   SET source_file_id = (SELECT keeper_id FROM sf_map WHERE sf_map.id = sessions.source_file_id);
+
+DELETE FROM scanned_files
+ WHERE id IN (SELECT id FROM sf_map WHERE id != keeper_id);
+
+DROP TABLE sf_map;
+
+UPDATE scanned_files SET path = lower(replace(path, '\\', '/'));
+";
+
+#[cfg(not(windows))]
+const MIGRATION_V26: &str = "
+CREATE TEMP TABLE sf_map AS
+SELECT id,
+       replace(path, '\\', '/') AS key,
+       FIRST_VALUE(id) OVER (
+           PARTITION BY replace(path, '\\', '/')
+           ORDER BY updated_at DESC, id ASC
+       ) AS keeper_id
+FROM scanned_files;
+
+UPDATE sessions
+   SET source_file_id = (SELECT keeper_id FROM sf_map WHERE sf_map.id = sessions.source_file_id);
+
+DELETE FROM scanned_files
+ WHERE id IN (SELECT id FROM sf_map WHERE id != keeper_id);
+
+DROP TABLE sf_map;
+
+UPDATE scanned_files SET path = replace(path, '\\', '/');
+";

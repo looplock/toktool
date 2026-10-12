@@ -862,6 +862,23 @@ pub struct SessionsPage {
     pub total: i64,
 }
 
+/// `scanned_files.path` 键的归一化：统一分隔符为 `/`，Windows 上再做 ASCII
+/// 小写折叠。同一日志文件可能以不同形态到达（调用方传入的根目录写法、
+/// walkdir 拼接的分隔符、大小写不敏感文件系统上的大小写漂移），不归一化就
+/// 会在唯一键上落成多本账，分裂增量游标并让 missing 对账失真。ASCII 小写与
+/// SQLite `lower()` 口径一致（同为 ASCII-only），迁移 v26 用同一表达式分组。
+pub(crate) fn normalize_scanned_path(path: &str) -> String {
+    let unified = path.replace('\\', "/");
+    #[cfg(windows)]
+    {
+        unified.to_ascii_lowercase()
+    }
+    #[cfg(not(windows))]
+    {
+        unified
+    }
+}
+
 /// 打开（或创建）主库：建父目录、施加 PRAGMA、应用未运行的迁移。
 ///
 /// `db_path` 应来自 `paths::main_db_path()`——文件名的单一事实源在那里。

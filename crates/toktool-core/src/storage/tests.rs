@@ -2714,3 +2714,179 @@ fn tail_migrations_are_reentrant_from_any_rollback_point() {
         cleanup(&path);
     }
 }
+
+#[test]
+fn normalize_scanned_path_unifies_separators() {
+    assert_eq!(normalize_scanned_path("/a/b/c.jsonl"), "/a/b/c.jsonl");
+    assert_eq!(normalize_scanned_path("/a\\b/c.jsonl"), "/a/b/c.jsonl");
+    #[cfg(windows)]
+    assert_eq!(normalize_scanned_path("/A\\B/C.JSONL"), "/a/b/c.jsonl");
+}
+
+#[test]
+fn scanned_file_keys_unify_separator_shapes() {
+    let (storage, path) = test_db("separator-key");
+    let first = storage
+        .upsert_scanned_file("/logs/a.jsonl", "claude-code", &[1], 10, 10, 0)
+        .unwrap();
+    let second = storage
+        .upsert_scanned_file("/logs\\a.jsonl", "claude-code", &[1], 15, 15, 1)
+        .unwrap();
+    assert_eq!(first, second, "分隔符漂移必须命中同一行");
+    // 反向形态查询也能命中既有簿记。
+    let state = storage
+        .scanned_file_state("/logs\\a.jsonl")
+        .unwrap()
+        .unwrap();
+    assert_eq!(state.parsed_bytes, 15);
+    let count: i64 = storage
+        .conn
+        .query_row("SELECT COUNT(*) FROM scanned_files", [], |row| row.get(0))
+        .unwrap();
+    assert_eq!(count, 1);
+    cleanup(&path);
+}
+
+#[cfg(windows)]
+#[test]
+fn scanned_file_keys_fold_case_on_windows() {
+    let (storage, path) = test_db("case-key");
+    let first = storage
+        .upsert_scanned_file("/Logs/A.JSONL", "claude-code", &[1], 10, 10, 0)
+        .unwrap();
+    let second = storage
+        .upsert_scanned_file("/logs/a.jsonl", "claude-code", &[1], 15, 15, 1)
+        .unwrap();
+    assert_eq!(first, second, "大小写漂移在 Windows 上必须命中同一行");
+    let state = storage
+        .scanned_file_state("/LOGS\\A.jsonl")
+        .unwrap()
+        .unwrap();
+    assert_eq!(state.parsed_bytes, 15);
+    cleanup(&path);
+}
+
+/// v26：同一文件的分隔符漂移两本账合并为一本——updated_at 新者胜出，
+/// 指向旧账的会话改指保留行，旧账的转录缓存级联清空。
+#[test]
+fn migration_v26_merges_drifted_path_accounts() {
+    let (storage, path) = test_db("v26-merge");
+    storage
+        .conn
+        .execute(
+            "INSERT INTO scanned_files (path, tool, content_hash, size, parsed_bytes, updated_at)
+             VALUES ('/logs/old.jsonl', 'claude-code', x'01', 10, 10, 100)",
+            [],
+        )
+        .unwrap();
+    storage
+        .conn
+        .execute(
+            "INSERT INTO scanned_files (path, tool, content_hash, size, parsed_bytes, updated_at)
+             VALUES ('/logs\\old.jsonl', 'claude-code', x'02', 20, 20, 200)",
+            [],
+        )
+        .unwrap();
+    storage
+        .conn
+        .execute(
+            "INSERT INTO sessions (tool, external_id, source_file_id, first_seen_at)
+             VALUES ('claude-code', 'sess-1',
+                     (SELECT id FROM scanned_files WHERE path = '/logs/old.jsonl'), 1)",
+            [],
+        )
+        .unwrap();
+    storage
+        .conn
+        .execute(
+            "INSERT INTO transcript_entries (file_id, seq, role, kind, frag_offset, frag_len)
+             VALUES ((SELECT id FROM scanned_files WHERE path = '/logs/old.jsonl'),
+                     0, 'user', 0, 0, 5)",
+            [],
+        )
+        .unwrap();
+
+    // 回拨到 v25，重开触发 v26（test_db 建库时已是最新版，直接重开不会重跑）。
+    storage
+        .conn
+        .execute("PRAGMA user_version = 25", [])
+        .unwrap();
+    drop(storage);
+    let reopened = open(&path).unwrap();
+    let version: i64 = reopened
+        .conn
+        .query_row("PRAGMA user_version", [], |row| row.get(0))
+        .unwrap();
+    assert_eq!(version as usize, migrations::MIGRATIONS.len());
+
+    let (kept_path, kept_id, parsed): (String, i64, i64) = reopened
+        .conn
+        .query_row(
+            "SELECT path, id, parsed_bytes FROM scanned_files",
+            [],
+            |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)),
+        )
+        .unwrap();
+    assert_eq!(kept_path, "/logs/old.jsonl", "幸存行 path 必须已归一化");
+    assert_eq!(parsed, 20, "updated_at 新者（parsed_bytes=20）胜出");
+
+    let session_file: i64 = reopened
+        .conn
+        .query_row(
+            "SELECT source_file_id FROM sessions WHERE external_id = 'sess-1'",
+            [],
+            |row| row.get(0),
+        )
+        .unwrap();
+    assert_eq!(session_file, kept_id, "会话必须改指保留行");
+
+    let entries: i64 = reopened
+        .conn
+        .query_row("SELECT COUNT(*) FROM transcript_entries", [], |row| {
+            row.get(0)
+        })
+        .unwrap();
+    assert_eq!(entries, 0, "被删账本的转录缓存必须级联清空");
+    cleanup(&path);
+}
+
+#[cfg(windows)]
+#[test]
+fn migration_v26_merges_case_drifted_accounts_on_windows() {
+    let (storage, path) = test_db("v26-case-merge");
+    storage
+        .conn
+        .execute(
+            "INSERT INTO scanned_files (path, tool, content_hash, size, parsed_bytes, updated_at)
+             VALUES ('/Logs/Old.jsonl', 'claude-code', x'01', 10, 10, 100)",
+            [],
+        )
+        .unwrap();
+    storage
+        .conn
+        .execute(
+            "INSERT INTO scanned_files (path, tool, content_hash, size, parsed_bytes, updated_at)
+             VALUES ('/logs/old.jsonl', 'claude-code', x'02', 20, 20, 200)",
+            [],
+        )
+        .unwrap();
+
+    // 回拨到 v25，重开触发 v26。
+    storage
+        .conn
+        .execute("PRAGMA user_version = 25", [])
+        .unwrap();
+    drop(storage);
+    let reopened = open(&path).unwrap();
+    let kept_path: String = reopened
+        .conn
+        .query_row("SELECT path FROM scanned_files", [], |row| row.get(0))
+        .unwrap();
+    assert_eq!(kept_path, "/logs/old.jsonl");
+    let count: i64 = reopened
+        .conn
+        .query_row("SELECT COUNT(*) FROM scanned_files", [], |row| row.get(0))
+        .unwrap();
+    assert_eq!(count, 1);
+    cleanup(&path);
+}

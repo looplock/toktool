@@ -2380,9 +2380,10 @@ mod tests {
                 .unwrap()
         };
         assert!(source_of("sess_a").ends_with("model-io-sess_a.jsonl"));
+        // 登记源是归一化键（分隔符统一、Windows 折叠大小写），与原样路径按同口径比。
         assert_eq!(
-            Path::new(source_of("sess_gone").as_str()),
-            db_path,
+            crate::storage::normalize_scanned_path(source_of("sess_gone").as_str()),
+            crate::storage::normalize_scanned_path(&db_path.to_string_lossy()),
             "库登记源指向应用库"
         );
 

@@ -111,9 +111,15 @@ pub fn trash_session_with(
     let source = storage.scanned_file_path(session.source_file_id)?;
     // 数据库类来源判定：会话登记的源就是工具自有库。命中的是 opencode（全部
     // 会话）与 zcode 被轮转的会话；zcode 的 rollout 文件会话不匹配，走文件流。
+    // 两边都按 scanned_files 的键口径归一化后再比——库里存的是归一化形态，
+    // 适配器给的是原样路径，不归一就会因分隔符/大小写漂移误判成文件来源。
     let db_path = adapter.db_source_path();
     let db_source = match (&db_path, source.as_deref()) {
-        (Some(db), Some(src)) if src == db.to_string_lossy().as_ref() => Some(db.as_path()),
+        (Some(db), Some(src))
+            if src == crate::storage::normalize_scanned_path(&db.to_string_lossy()) =>
+        {
+            Some(db.as_path())
+        }
         _ => None,
     };
 

@@ -6,7 +6,8 @@ use rusqlite::{OptionalExtension, params};
 use super::*;
 
 impl Storage {
-    /// 登记一个扫描到的日志文件；已存在（按规范化路径）则更新簿记并清除"消失"标记。
+    /// 登记一个扫描到的日志文件；已存在（按 [`normalize_scanned_path`] 归一化
+    /// 后的路径键）则更新簿记并清除"消失"标记。
     ///
     /// 返回该文件的行 id。`parsed_bytes` 是增量游标——文件被轮转/重写后由扫描层
     /// 重置为 0 并整体重解析，去重交给 [`Storage::insert_usage_record`]。
@@ -19,6 +20,7 @@ impl Storage {
         parsed_bytes: i64,
         now: i64,
     ) -> Result<i64> {
+        let path = normalize_scanned_path(path);
         self.conn.query_row(
             "INSERT INTO scanned_files (path, tool, content_hash, size, parsed_bytes, updated_at)
              VALUES (?1, ?2, ?3, ?4, ?5, ?6)
@@ -66,6 +68,7 @@ impl Storage {
 
     /// 读取扫描簿记（游标与内容指纹）；从未见过该文件则 `None`。
     pub fn scanned_file_state(&self, path: &str) -> Result<Option<ScannedFileState>> {
+        let path = normalize_scanned_path(path);
         self.conn
             .query_row(
                 "SELECT id, parsed_bytes, content_hash FROM scanned_files WHERE path = ?1",
