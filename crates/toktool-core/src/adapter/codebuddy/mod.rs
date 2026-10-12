@@ -1,5 +1,7 @@
-//! codebuddy 适配器：腾讯 CodeBuddy IDE（VS Code fork，数据在
-//! `%APPDATA%/CodeBuddy CN/`，国际版为 `CodeBuddy/`，两处都探测）。两个来源各管一摊。
+//! codebuddy 适配器：腾讯 CodeBuddy IDE（VS Code fork）。数据根按平台解析：
+//! Windows `%APPDATA%`、macOS `~/Library/Application Support`、Linux
+//! `~/.config`，其下 `CodeBuddy CN/`（国内版优先），国际版为 `CodeBuddy/`，
+//! 两处都探测。两个来源各管一摊。
 //!
 //! **会话**：根目录 `codebuddy-sessions.vscdb` 的 ItemTable，只 SELECT `session:%`
 //! 键（conversationId / cwd / title / createdAt / updatedAt）。同表混有
@@ -23,7 +25,7 @@
 //! 行的 `Step execution metrics` 行（usage JSON 与步进行逐字节相同，以此为键
 //! 配对）；子代理（code-explorer）步进没有 metrics 行，时长留空。
 //!
-//! **转录**：读本地历史缓存 `%LOCALAPPDATA%/CodeBuddyExtension/Data/<userId>/
+//! **转录**：读本地历史缓存 `<缓存根>/CodeBuddyExtension/Data/<userId>/
 //! CodeBuddyIDE/<userId>/history/<workspaceHash>/<conversationId>/`——
 //! `index.json` 给消息顺序，`messages/<id>.json` 各存一条（`message`/`extra`
 //! 是转义 JSON：content 块数组 + inputPhrase/modelId 等）。真实提问在
@@ -65,15 +67,62 @@ const SESSIONS_DB_FILE: &str = "codebuddy-sessions.vscdb";
 /// 扩展日志的宿主目录名：is_session_log 靠它锁定，避免误吃其他扩展的日志。
 const LOG_HOST_DIR: &str = "Tencent-Cloud.coding-copilot";
 
-/// codebuddy 的适配器实现。`app_data_dir` 为 `None` 时取 `%APPDATA%`；
-/// `local_data_dir` 为 `None` 时取 `%LOCALAPPDATA%/CodeBuddyExtension/Data`。
-/// 两者都为测试注入（目录下直接放 `CodeBuddy CN/` 或 `CodeBuddy/`、`Data/`）。
+/// codebuddy 的适配器实现。`app_data_dir` 为 `None` 时按平台取安装数据根
+/// （[`default_app_data_root`]）；`local_data_dir` 为 `None` 时按平台取历史
+/// 缓存根的父目录（[`default_local_data_roots`]）。两者都为测试注入
+/// （目录下直接放 `CodeBuddy CN/` 或 `CodeBuddy/`、`Data/`）。
 pub struct CodeBuddyAdapter {
-    /// 测试注入的数据根（含 `CodeBuddy CN/` 安装目录）；`None` 取 `%APPDATA%`。
+    /// 测试注入的数据根（含 `CodeBuddy CN/` 安装目录）；`None` 走默认解析。
     pub app_data_dir: Option<PathBuf>,
     /// 测试注入的本地历史缓存根（即 `CodeBuddyExtension/Data` 目录本体）；
-    /// `None` 取 `%LOCALAPPDATA%`。
+    /// `None` 走默认解析。
     pub local_data_dir: Option<PathBuf>,
+}
+
+// 两个默认根的平台分支。无 HOME（home_dir 为 None）时返回空候选，等同
+// "本机未安装"，不报错——调用方按候选存在与否裁决。
+// 安装数据根对应关系：Windows `%APPDATA%` ↔ macOS `~/Library/Application
+// Support` ↔ Linux `~/.config`。
+
+/// Windows 取 `%APPDATA%`。
+#[cfg(windows)]
+fn default_app_data_root() -> Option<PathBuf> {
+    std::env::var_os("APPDATA").map(PathBuf::from)
+}
+
+/// macOS 取 `~/Library/Application Support`。
+#[cfg(target_os = "macos")]
+fn default_app_data_root() -> Option<PathBuf> {
+    crate::paths::home_dir().map(|home| home.join("Library").join("Application Support"))
+}
+
+/// Linux 取 `$XDG_CONFIG_HOME`（须绝对路径，缺省 `~/.config`）。
+#[cfg(all(unix, not(target_os = "macos")))]
+fn default_app_data_root() -> Option<PathBuf> {
+    std::env::var_os("XDG_CONFIG_HOME")
+        .map(PathBuf::from)
+        .filter(|p| p.is_absolute())
+        .or_else(|| crate::paths::home_dir().map(|home| home.join(".config")))
+}
+
+/// 历史缓存根的父目录候选：Windows 先 `%LOCALAPPDATA%` 再 `%APPDATA%`——
+/// 官方排障文档两种写法都出现过，交由调用方按存在与否裁决。
+#[cfg(windows)]
+fn default_local_data_roots() -> Vec<PathBuf> {
+    let mut roots = Vec::new();
+    if let Some(root) = std::env::var_os("LOCALAPPDATA") {
+        roots.push(PathBuf::from(root));
+    }
+    if let Some(root) = std::env::var_os("APPDATA") {
+        roots.push(PathBuf::from(root));
+    }
+    roots
+}
+
+/// 非 Windows 与安装数据根同源。
+#[cfg(not(windows))]
+fn default_local_data_roots() -> Vec<PathBuf> {
+    default_app_data_root().into_iter().collect()
 }
 
 impl CodeBuddyAdapter {
@@ -81,11 +130,8 @@ impl CodeBuddyAdapter {
     fn install_dirs(&self) -> Vec<PathBuf> {
         match &self.app_data_dir {
             Some(root) => INSTALL_DIRS.iter().map(|d| root.join(d)).collect(),
-            None => match std::env::var_os("APPDATA") {
-                Some(root) => INSTALL_DIRS
-                    .iter()
-                    .map(|d| PathBuf::from(&root).join(d))
-                    .collect(),
+            None => match default_app_data_root() {
+                Some(root) => INSTALL_DIRS.iter().map(|d| root.join(d)).collect(),
                 None => vec![],
             },
         }
@@ -111,10 +157,10 @@ impl CodeBuddyAdapter {
     fn history_roots(&self) -> Vec<PathBuf> {
         match &self.local_data_dir {
             Some(root) => vec![root.clone()],
-            None => match std::env::var_os("LOCALAPPDATA") {
-                Some(root) => vec![PathBuf::from(root).join("CodeBuddyExtension").join("Data")],
-                None => vec![],
-            },
+            None => default_local_data_roots()
+                .iter()
+                .map(|root| root.join("CodeBuddyExtension").join("Data"))
+                .collect(),
         }
     }
 
