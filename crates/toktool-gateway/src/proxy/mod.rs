@@ -257,7 +257,10 @@ async fn bind_with_fallback(
     match tokio::net::TcpListener::bind(configured).await {
         Ok(listener) => Ok((listener, configured)),
         Err(err) if err.kind() == std::io::ErrorKind::AddrInUse => {
-            let listener = tokio::net::TcpListener::bind(("127.0.0.1", 0))
+            // 回退保持配置的 IP（地址族与回环属性随配置走），只把端口交给系统
+            // 分配——换成 127.0.0.1 会让配了 [::1] 的纯 IPv6 客户端悄悄失联。
+            let fallback = std::net::SocketAddr::new(configured.ip(), 0);
+            let listener = tokio::net::TcpListener::bind(fallback)
                 .await
                 .map_err(|e| Error::Internal(format!("bind fallback: {e}")))?;
             let addr = listener
@@ -746,10 +749,10 @@ async fn proxy(
         let mut usage_scanner = UsageScanner::new(upstream_protocol);
         let mut translator = translate::stream_translator(inbound, upstream_protocol);
         let mut stream = upstream_stream;
-        // 上游病态（SSE 行超限 / 总超时）标志：置位后跳过正常收尾——错误事件
-        // 已在断点发给客户端，不再补发合法的 [DONE]/completed 把半截流伪装成
-        // 正常结束；计量照常（已喂入的部分用量照记）。
-        let mut overflowed = false;
+        // 上游病态（SSE 行超限 / 传输中断 / 总超时）标志：置位后跳过正常收尾——
+        // 错误事件已在断点发给客户端，不再补发合法的 [DONE]/completed 把半截流
+        // 伪装成正常结束；计量照常（已喂入的部分用量照记）。
+        let mut aborted = false;
         // 客户端断开即退出泵（计量记已收部分）：本地网关的价值在省成本，
         // 断开后继续把上游拉到 EOF 只会白付全额账单、未收到的 token 也全额
         // 入账。此前转换模式拉完、透传模式放弃，两模式语义互相矛盾——统一取放弃。
@@ -757,11 +760,24 @@ async fn proxy(
 
         let pump = async {
             while !client_gone && let Some(chunk) = stream.next().await {
-                let Ok(bytes) = chunk else { break };
+                let bytes = match chunk {
+                    Ok(bytes) => bytes,
+                    // 传输层中断（TCP reset、上游进程崩溃）：复用病态路径，
+                    // 发错误事件再断，绝不走正常收尾伪装成完整回答。
+                    Err(err) => {
+                        aborted = true;
+                        let envelope = stream_abort_envelope(
+                            inbound,
+                            &format!("upstream connection failed: {err}"),
+                        );
+                        let _ = tx.send(format!("data: {envelope}\n\n").into_bytes()).await;
+                        break;
+                    }
+                };
                 let payloads = match scanner.push(&bytes) {
                     Ok(payloads) => payloads,
                     Err(translate::SseOverflow) => {
-                        overflowed = true;
+                        aborted = true;
                         // 病态上游（无换行的超大响应）：向客户端发一条错误事件再断。
                         let envelope =
                             stream_abort_envelope(inbound, "upstream sent an oversized SSE line");
@@ -790,7 +806,7 @@ async fn proxy(
                     client_gone = true;
                 }
             }
-            if !overflowed {
+            if !aborted {
                 for payload in scanner.finish() {
                     usage_scanner.feed(&payload);
                     if let Some(translator) = translator.as_mut() {
@@ -932,6 +948,20 @@ mod tests {
         handle.stop();
 
         let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// 回退保持配置的地址族：[::1] 被占时回落也必须是 IPv6 回环，
+    /// 不能悄悄落到 127.0.0.1 让纯 IPv6 客户端失联。
+    #[tokio::test]
+    async fn fallback_keeps_the_configured_address_family() {
+        let occupied = tokio::net::TcpListener::bind("[::1]:0").await.unwrap();
+        let occupied_addr = occupied.local_addr().unwrap();
+        let (listener, addr) = bind_with_fallback(occupied_addr).await.unwrap();
+        assert_eq!(addr.ip(), occupied_addr.ip(), "回退保持配置的 IP（含族）");
+        assert_ne!(addr.port(), occupied_addr.port(), "端口换成本地分配");
+        assert!(addr.ip().is_loopback(), "回环红线不因回退而破");
+        drop(listener);
+        drop(occupied);
     }
 
     #[test]
@@ -1144,6 +1174,157 @@ mod tests {
             "usage 从上游 SSE 末包抽取"
         );
         assert_eq!(totals.unknown_cost_rows, 1, "gpt-x 未挂价，走未知而非编造");
+
+        shutdown_tx.send(()).unwrap();
+        let _ = std::fs::remove_dir_all(&dir);
+
+        fn hex_encode(bytes: &[u8]) -> String {
+            bytes.iter().map(|b| format!("{b:02x}")).collect()
+        }
+    }
+
+    /// 集成：上游流到一半传输中断（body 出错 → hyper 掐断连接），网关必须
+    /// 发错误事件并跳过正常收尾——绝不补 [DONE]/finish_reason 把半截流伪装
+    /// 成完整回答；已收 chunk 照常透传，计量照记。
+    #[tokio::test]
+    async fn upstream_transport_abort_is_surfaced_not_disguised() {
+        use std::sync::atomic::{AtomicU64, Ordering};
+
+        const TOKEN: &str = "sk-toktool-itest-token";
+        unsafe { std::env::set_var("TOKTOOL_TEST_KEY_ABORT", "test-upstream-key") };
+
+        // 假上游：raw TCP——回写响应头 + 一个完整 chunk 后直接关连接（无
+        // chunked 终结块）。不 FIN 的半截流对 hyper 客户端就是传输层错误；
+        // 不能用 axum body Err 模拟——hyper 服务端遇到 body 错误会 RST，
+        // 已写的响应头一并被丢，客户端只能看到 502 而不是半截流。
+        let upstream_listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let upstream_addr = upstream_listener.local_addr().unwrap();
+        tokio::spawn(async move {
+            use tokio::io::{AsyncReadExt, AsyncWriteExt};
+            let (mut sock, _) = upstream_listener.accept().await.unwrap();
+            // 读满请求头 + content-length 声明的 body 再响应：提前关连接会让
+            // 还在写 body 的对端吃 RST，请求偶发打成 502（本测试的抖动根源）。
+            let mut received: Vec<u8> = Vec::new();
+            let mut buf = [0u8; 8192];
+            loop {
+                let n = sock.read(&mut buf).await.unwrap();
+                if n == 0 {
+                    break;
+                }
+                received.extend_from_slice(&buf[..n]);
+                let Some(head_end) = received.windows(4).position(|w| w == b"\r\n\r\n") else {
+                    continue;
+                };
+                let want = received[..head_end]
+                    .split(|b| *b == b'\n')
+                    .find_map(|line| {
+                        let line = if line.ends_with(b"\r") {
+                            &line[..line.len() - 1]
+                        } else {
+                            line
+                        };
+                        line.strip_prefix(b"content-length:")
+                            .or_else(|| line.strip_prefix(b"Content-Length:"))
+                            .map(|v| {
+                                String::from_utf8_lossy(v)
+                                    .trim()
+                                    .parse::<usize>()
+                                    .unwrap_or(0)
+                            })
+                    })
+                    .unwrap_or(0);
+                if received.len() >= head_end + 4 + want {
+                    break;
+                }
+            }
+            let payload = b"data: {\"choices\":[{\"delta\":{\"content\":\"par\"}}]}\n\n";
+            let head = "HTTP/1.1 200 OK\r\ncontent-type: text/event-stream\r\ntransfer-encoding: chunked\r\n\r\n";
+            let _ = sock.write_all(head.as_bytes()).await;
+            let _ = sock
+                .write_all(format!("{:x}\r\n", payload.len()).as_bytes())
+                .await;
+            let _ = sock.write_all(payload).await;
+            let _ = sock.write_all(b"\r\n").await;
+            let _ = sock.flush().await;
+            drop(sock);
+        });
+
+        static SEQ: AtomicU64 = AtomicU64::new(0);
+        let seq = SEQ.fetch_add(1, Ordering::Relaxed);
+        let dir =
+            std::env::temp_dir().join(format!("toktool-gw-abort-{}-{seq}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let db_path = dir.join("toktool.db");
+        let db = toktool_core::storage::open(&db_path).unwrap();
+        let token_hash: [u8; 32] = Sha256::digest(TOKEN.as_bytes()).into();
+        let config_path = dir.join("gateway.json");
+        std::fs::write(
+            &config_path,
+            json!({
+                "listen": "127.0.0.1:0",
+                "upstreams": [{"name": "mock", "protocol": "openai",
+                    "base_url": format!("http://{upstream_addr}"), "key_ref": "TOKTOOL_TEST_KEY_ABORT"}],
+                "routes": [{"model": "gpt-*", "upstream": "mock"}],
+                "models": ["gpt-x"],
+                "token_hashes": [hex_encode(&token_hash)],
+            })
+            .to_string(),
+        )
+        .unwrap();
+
+        let db_path_for_serve = db_path.clone();
+        let gateway_listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let gateway_addr = gateway_listener.local_addr().unwrap();
+        let config = Arc::new(ConfigHandle::load(&config_path).unwrap());
+        let (shutdown_tx, shutdown_rx) = tokio::sync::oneshot::channel::<()>();
+        tokio::spawn(async move {
+            serve_on(gateway_listener, config, db_path_for_serve, async move {
+                let _ = shutdown_rx.await;
+            })
+            .await
+            .unwrap();
+        });
+
+        let client = reqwest::Client::new();
+        let response = client
+            .post(format!("http://{gateway_addr}/v1/chat/completions"))
+            .bearer_auth(TOKEN)
+            .json(&json!({"model": "gpt-x", "stream": true}))
+            .send()
+            .await
+            .unwrap();
+        assert_eq!(response.status(), StatusCode::OK);
+        let body = response.text().await.unwrap();
+        assert!(
+            body.contains("\"content\":\"par\""),
+            "已收 chunk 照常透传: {body}"
+        );
+        assert!(
+            body.contains("upstream connection failed"),
+            "断连必须以错误事件显性上报: {body}"
+        );
+        assert!(
+            !body.contains("[DONE]"),
+            "不得补 [DONE] 伪装正常结束: {body}"
+        );
+        assert!(
+            !body.contains("\"finish_reason\""),
+            "不得补 finish_reason 伪装正常结束: {body}"
+        );
+
+        // 计量照常落库（usage 缺省也记请求）。
+        let mut totals = None;
+        for _ in 0..100 {
+            if let Ok(payload) = db.gateway_overview()
+                && payload.totals.request_count > 0
+            {
+                totals = Some(payload.totals);
+                break;
+            }
+            tokio::time::sleep(std::time::Duration::from_millis(20)).await;
+        }
+        let totals = totals.expect("中断请求也必须落库");
+        assert_eq!(totals.request_count, 1);
 
         shutdown_tx.send(()).unwrap();
         let _ = std::fs::remove_dir_all(&dir);
