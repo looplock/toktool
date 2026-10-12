@@ -70,10 +70,12 @@ impl Adapter for GrokAdapter {
         }
     }
 
-    /// 只认 updates.jsonl；events.jsonl（含密钥 URL）与 chat_history.jsonl（无
-    /// sessionId、无用量）都不匹配。
+    /// 只认 updates.jsonl（文件名不区分大小写）；events.jsonl（含密钥 URL）与
+    /// chat_history.jsonl（无 sessionId、无用量）都不匹配。
     fn is_session_log(&self, path: &Path) -> bool {
-        path.file_name().is_some_and(|name| name == "updates.jsonl")
+        path.file_name()
+            .and_then(|name| name.to_str())
+            .is_some_and(|name| name.eq_ignore_ascii_case("updates.jsonl"))
     }
 
     /// 会话 = 整个目录（updates.jsonl 只是入口，旁边还有 chat_history、summary 等）。
@@ -1262,6 +1264,10 @@ mod tests {
     fn only_updates_jsonl_matches() {
         let adapter = GrokAdapter;
         assert!(adapter.is_session_log(Path::new("/s/01a2b3d7/updates.jsonl")));
+        assert!(
+            adapter.is_session_log(Path::new("/s/01a2b3d7/UPDATES.JSONL")),
+            "文件名不区分大小写"
+        );
         assert!(!adapter.is_session_log(Path::new("/s/01a2b3d7/events.jsonl")));
         assert!(!adapter.is_session_log(Path::new("/s/01a2b3d7/chat_history.jsonl")));
         assert!(!adapter.is_session_log(Path::new("/s/01a2b3d7/summary.json")));

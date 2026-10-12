@@ -30,6 +30,15 @@ use std::path::{Path, PathBuf};
 use crate::error::{Error, Result};
 use crate::model::{TokenUsage, Tool};
 
+/// 扩展名匹配（ASCII 大小写不敏感）。大小写不敏感/保留大小写的文件系统上，
+/// 同一形态的日志可能以任意大小写出现；判定只折叠 ASCII，路径里的非 ASCII
+/// 字符不参与。
+pub(crate) fn extension_is(path: &Path, ext: &str) -> bool {
+    path.extension()
+        .and_then(|e| e.to_str())
+        .is_some_and(|e| e.eq_ignore_ascii_case(ext))
+}
+
 /// 适配器契约。[`Self::parse_line`] 按行喂入：扫描层负责游标与断行，适配器只看单行。
 pub trait Adapter: Sync {
     /// 本适配器负责的工具。

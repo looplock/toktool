@@ -202,9 +202,10 @@ impl Adapter for CodeBuddyAdapter {
         self.logs_roots()
     }
 
-    /// 只认扩展日志宿主目录下的 `.log`（含轮转的 `.1.log`——扩展名仍是 log）。
+    /// 只认扩展日志宿主目录下的 `.log`（含轮转的 `.1.log`——扩展名仍是 log；
+    /// 扩展名不区分大小写）。
     fn is_session_log(&self, path: &Path) -> bool {
-        path.extension().and_then(|e| e.to_str()) == Some("log")
+        super::extension_is(path, "log")
             && path
                 .parent()
                 .is_some_and(|dir| dir.file_name().and_then(|n| n.to_str()) == Some(LOG_HOST_DIR))
@@ -1108,6 +1109,20 @@ mod tests {
         };
         let logs_root = root.join("CodeBuddy CN").join("logs");
         (adapter, logs_root)
+    }
+
+    /// 扩展名不区分大小写；宿主目录名（工具自建、固定大小写）仍须精确命中。
+    #[test]
+    fn session_log_matches_extension_case_insensitively() {
+        let adapter = CodeBuddyAdapter {
+            app_data_dir: None,
+            local_data_dir: None,
+        };
+        let host = Path::new("/data/CodeBuddy CN/logs/window1/exthost").join(LOG_HOST_DIR);
+        assert!(adapter.is_session_log(&host.join("ext.log")));
+        assert!(adapter.is_session_log(&host.join("ext.1.LOG")));
+        assert!(!adapter.is_session_log(&host.join("ext.txt")));
+        assert!(!adapter.is_session_log(Path::new("/data/logs/exthost/ext.log")));
     }
 
     /// 端到端：两段会话交错、模型切换、工具归属、净桶拆分、全零跳过。

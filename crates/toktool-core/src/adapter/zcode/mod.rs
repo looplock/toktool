@@ -168,7 +168,7 @@ impl Adapter for ZcodeAdapter {
     }
 
     fn is_session_log(&self, path: &Path) -> bool {
-        path.extension().and_then(|ext| ext.to_str()) == Some("jsonl")
+        super::extension_is(path, "jsonl")
     }
 
     /// 单文件可长到数 GB（实测 2.1 GB）且逐行自洽：必须走流式增量，
@@ -1324,6 +1324,10 @@ mod tests {
     fn only_jsonl_files_count_as_session_logs() {
         let adapter = adapter();
         assert!(adapter.is_session_log(Path::new("/r/model-io-sess_x.jsonl")));
+        assert!(
+            adapter.is_session_log(Path::new("/r/MODEL-IO-SESS_X.JSONL")),
+            "扩展名不区分大小写"
+        );
         assert!(!adapter.is_session_log(Path::new("/r/model-io-keep.txt")));
     }
 

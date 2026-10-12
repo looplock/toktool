@@ -63,9 +63,10 @@ impl Adapter for WorkBuddyAdapter {
         }
     }
 
-    /// `.jsonl` 是会话日志；同目录的 `.meta.json`、`.file-rollback.ndjson` 不匹配。
+    /// `.jsonl` 是会话日志（扩展名不区分大小写）；同目录的 `.meta.json`、
+    /// `.file-rollback.ndjson` 不匹配。
     fn is_session_log(&self, path: &Path) -> bool {
-        path.extension().and_then(|ext| ext.to_str()) == Some("jsonl")
+        super::extension_is(path, "jsonl")
     }
 
     /// `.jsonl` + 同名的 `.meta.json` 与 `.file-rollback.ndjson`。
@@ -924,6 +925,10 @@ mod tests {
     fn only_jsonl_files_count_as_session_logs() {
         let adapter = adapter();
         assert!(adapter.is_session_log(Path::new("/p/sess.jsonl")));
+        assert!(
+            adapter.is_session_log(Path::new("/p/SESS.JSONL")),
+            "扩展名不区分大小写"
+        );
         assert!(!adapter.is_session_log(Path::new("/p/sess.meta.json")));
         assert!(!adapter.is_session_log(Path::new("/p/sess.file-rollback.ndjson")));
     }

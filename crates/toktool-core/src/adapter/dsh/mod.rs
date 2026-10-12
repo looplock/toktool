@@ -39,11 +39,11 @@ impl Adapter for DshAdapter {
         }
     }
 
-    /// 只认 `.jsonl.zstd`：裸 `.jsonl` 不是本工具的会话日志形态。
+    /// 只认 `.jsonl.zstd`（不区分大小写）：裸 `.jsonl` 不是本工具的会话日志形态。
     fn is_session_log(&self, path: &Path) -> bool {
         path.file_name()
             .and_then(|name| name.to_str())
-            .is_some_and(|name| name.ends_with(".jsonl.zstd"))
+            .is_some_and(|name| name.to_ascii_lowercase().ends_with(".jsonl.zstd"))
     }
 
     /// 会话 = 整个目录。
@@ -387,6 +387,10 @@ mod tests {
         let adapter = DshAdapter;
         assert!(adapter.is_session_log(Path::new("/s/session.v3.jsonl.zstd")));
         assert!(adapter.is_session_log(Path::new("/s/session.jsonl.zstd")));
+        assert!(
+            adapter.is_session_log(Path::new("/s/session.v3.JSONL.ZSTD")),
+            "后缀不区分大小写"
+        );
         assert!(!adapter.is_session_log(Path::new("/s/notes.txt")));
         assert!(!adapter.is_session_log(Path::new("/s/settings.yaml")));
     }

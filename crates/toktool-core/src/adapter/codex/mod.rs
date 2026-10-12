@@ -49,7 +49,7 @@ impl Adapter for CodexAdapter {
     }
 
     fn is_session_log(&self, path: &Path) -> bool {
-        path.extension().and_then(|ext| ext.to_str()) == Some("jsonl")
+        super::extension_is(path, "jsonl")
             && path
                 .file_name()
                 .and_then(|name| name.to_str())
@@ -833,6 +833,12 @@ mod tests {
         assert!(adapter.is_session_log(Path::new(
             "C:/Users/u/.codex/sessions/2026/01/01/rollout-2026-01-01T15-31-13-01a2b3c5.jsonl"
         )));
+        assert!(
+            adapter.is_session_log(Path::new(
+                "C:/Users/u/.codex/sessions/2026/01/01/rollout-2026-01-01T15-31-13-01a2b3c5.JSONL"
+            )),
+            "扩展名不区分大小写"
+        );
         assert!(!adapter.is_session_log(Path::new("C:/Users/u/.codex/history.jsonl")));
         assert!(!adapter.is_session_log(Path::new("C:/Users/u/.codex/sessions/notes.jsonl")));
         assert!(!adapter.is_session_log(Path::new("C:/Users/u/.codex/config.toml")));

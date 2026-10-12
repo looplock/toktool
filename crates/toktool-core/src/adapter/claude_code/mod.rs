@@ -85,7 +85,7 @@ impl Adapter for ClaudeCodeAdapter {
     }
 
     fn is_session_log(&self, path: &Path) -> bool {
-        path.extension().and_then(|ext| ext.to_str()) == Some("jsonl")
+        super::extension_is(path, "jsonl")
     }
 
     /// 主文件 + 同名子目录（subagents）。子目录不存在时由编排层跳过。
@@ -475,6 +475,10 @@ mod tests {
     fn only_jsonl_files_count_as_session_logs() {
         let adapter = ClaudeCodeAdapter;
         assert!(adapter.is_session_log(Path::new("/p/sess.jsonl")));
+        assert!(
+            adapter.is_session_log(Path::new("/p/SESS.JSONL")),
+            "扩展名不区分大小写"
+        );
         assert!(!adapter.is_session_log(Path::new("/p/MEMORY.md")));
         assert!(!adapter.is_session_log(Path::new("/p/settings.json")));
     }

@@ -39,7 +39,7 @@ impl Adapter for PiAdapter {
     }
 
     fn is_session_log(&self, path: &Path) -> bool {
-        path.extension().and_then(|ext| ext.to_str()) == Some("jsonl")
+        super::extension_is(path, "jsonl")
     }
 
     /// 会话 = 整个目录（日志只是其中之一的入口文件）。
@@ -447,6 +447,10 @@ mod tests {
     fn only_jsonl_files_count_as_session_logs() {
         let adapter = PiAdapter;
         assert!(adapter.is_session_log(Path::new("/s/sess.jsonl")));
+        assert!(
+            adapter.is_session_log(Path::new("/s/SESS.JSONL")),
+            "扩展名不区分大小写"
+        );
         assert!(!adapter.is_session_log(Path::new("/s/auth.json")));
         assert!(!adapter.is_session_log(Path::new("/s/settings.json")));
     }
