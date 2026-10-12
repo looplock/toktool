@@ -209,14 +209,17 @@ pub fn run() {
         // 转录索引建站注册表（同会话并发去重，见类型注释）。
         .manage(TranscriptBuildSlot::default())
         .on_window_event(|window, event| {
-            // X 键在托盘开启时不是退出：进托盘（低功耗，窗口真销毁省 webview
-            // 内存），扫描循环在壳里照常跑。托盘关闭时放行默认行为（真退出）。
+            // X 键在托盘可用时不是退出：进托盘（低功耗，窗口真销毁省 webview
+            // 内存），扫描循环在壳里照常跑。托盘关闭或建失败时放行默认行为
+            // （真退出）——没有托盘的低功耗会失去唯一恢复路径。
             if let WindowEvent::CloseRequested { api, .. } = event {
                 if window.label() != WINDOW_LABEL {
                     return;
                 }
                 let app = window.app_handle();
-                if !app.state::<ShellConfigState>().get().tray {
+                let tray_ready =
+                    app.state::<ShellConfigState>().get().tray && app.tray_by_id(TRAY_ID).is_some();
+                if !tray_ready {
                     return;
                 }
                 api.prevent_close();
@@ -232,7 +235,11 @@ pub fn run() {
             );
             app.manage(state.clone());
             spawn_scan_loop(app.handle().clone(), state.clone());
-            build_tray(app.handle().clone())?;
+            // 托盘建不出来（如 Linux 缺 libayatana-appindicator3）时降级为
+            // 无托盘继续跑：可选功能不拦启动，后续路径见各处 tray_by_id 判空。
+            if let Err(err) = build_tray(app.handle().clone()) {
+                eprintln!("托盘初始化失败，降级为无托盘模式: {err}");
+            }
             // 窗口配置成不可见创建，这里再决定去留：低功耗只在会话内生效，
             // 启动一律按非低功耗打开（顺带清掉上次会话可能残留的落盘状态）。
             state.update(|c| c.low_power = false);
@@ -247,10 +254,12 @@ pub fn run() {
         .run(|app, event| {
             // 低功耗销毁了最后一个窗口时 tauri 会请求退出（code None）：托盘
             // 还在且扫描循环常驻，拒绝退出。显式退出（托盘"退出"）带 code，放行。
+            // 托盘建失败时偏好仍可能记着开启，此时也放行——防无窗无托盘的僵尸进程。
             if let tauri::RunEvent::ExitRequested {
                 code: None, api, ..
             } = event
                 && app.state::<ShellConfigState>().get().tray
+                && app.tray_by_id(TRAY_ID).is_some()
             {
                 api.prevent_exit();
             }
@@ -362,7 +371,8 @@ fn exit_low_power(app: &AppHandle) {
 }
 
 /// 托盘无条件创建、可见性按壳偏好：运行时开关走 `set_visible`，免掉"关了再开
-/// 要重建菜单/事件绑定"的麻烦。菜单文案是中文缺省——前端起来后会按当前界面
+/// 要重建菜单/事件绑定"的麻烦。失败返回 Err，由 setup 降级为无托盘模式。
+/// 菜单文案是中文缺省——前端起来后会按当前界面
 /// 语言经 `tray_set_texts` 校正，这里保证前端未起或纯托盘场景也有可读菜单。
 fn build_tray(app: AppHandle) -> tauri::Result<()> {
     let visible = app.state::<ShellConfigState>().get().tray;
@@ -440,15 +450,19 @@ pub(crate) mod tray_ops {
     use super::{TRAY_ID, TrayMenu, exit_low_power};
     use tauri::Manager;
 
-    /// 托盘显隐切换；图标句柄此刻必然已建好（setup 里无条件创建）。
+    /// 托盘显隐切换。托盘内部状态（菜单句柄等）不出本模块。
     /// 关托盘时若在低功耗（无窗状态会失去唯一恢复路径），先重建窗口再降级。
     pub fn set_enabled(app: &tauri::AppHandle, enabled: bool) -> Result<(), String> {
         if !enabled {
             exit_low_power(app);
         }
-        let tray = app
-            .tray_by_id(TRAY_ID)
-            .ok_or_else(|| "托盘尚未初始化".to_string())?;
+        let tray = match app.tray_by_id(TRAY_ID) {
+            Some(tray) => tray,
+            // 托盘从未建成（如 Linux 缺系统库）：关=无事可做，返回成功让用户
+            // 至少能把偏好拨回关闭；开=真做不到，报错由前端回滚开关。
+            None if !enabled => return Ok(()),
+            None => return Err("托盘尚未初始化".to_string()),
+        };
         tray.set_visible(enabled).map_err(|e| e.to_string())
     }
 
