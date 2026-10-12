@@ -527,7 +527,10 @@ mod tests {
         assert_eq!(key, "ses_a");
         assert_eq!(session_facts.session_external_id, "ses_a");
         assert_eq!(session_facts.title.as_deref(), Some("修 bug"));
-        assert_eq!(session_facts.project_dir.as_deref(), Some("D:/Work/Demo/App"));
+        assert_eq!(
+            session_facts.project_dir.as_deref(),
+            Some("D:/Work/Demo/App")
+        );
         assert_eq!(session_facts.usage, None);
 
         let usage = usage_of(&source, "msg_1");

@@ -358,7 +358,10 @@ mod tests {
         assert_eq!(parsed.len(), 1);
         let assistant = facts(&parsed, 0);
         assert_eq!(assistant.session_external_id, "01a2b3c4-p001");
-        assert_eq!(assistant.project_dir.as_deref(), Some("D:\\Work\\Demo\\App"));
+        assert_eq!(
+            assistant.project_dir.as_deref(),
+            Some("D:\\Work\\Demo\\App")
+        );
     }
 
     #[test]
@@ -371,7 +374,10 @@ mod tests {
             r#"{"type":"session","version":3,"id":"second-session","cwd":"D:\\Work\\Other"}"#;
         let parsed = PiAdapter.parse_file(&[HEADER, new_header, ASSISTANT], 2);
         assert_eq!(facts(&parsed, 0).session_external_id, "second-session");
-        assert_eq!(facts(&parsed, 0).project_dir.as_deref(), Some("D:\\Work\\Other"));
+        assert_eq!(
+            facts(&parsed, 0).project_dir.as_deref(),
+            Some("D:\\Work\\Other")
+        );
     }
 
     #[test]

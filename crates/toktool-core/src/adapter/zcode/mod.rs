@@ -2185,7 +2185,10 @@ mod tests {
         assert_eq!(session_facts.len(), 1, "无标题无目录的会话行不入账");
         assert_eq!(session_facts[0].1.session_external_id, "sess_a");
         assert_eq!(session_facts[0].1.title.as_deref(), Some("官方标题"));
-        assert_eq!(session_facts[0].1.project_dir.as_deref(), Some("D:\\Work\\Demo\\App"));
+        assert_eq!(
+            session_facts[0].1.project_dir.as_deref(),
+            Some("D:\\Work\\Demo\\App")
+        );
 
         let mut usage: Vec<_> = source
             .facts
