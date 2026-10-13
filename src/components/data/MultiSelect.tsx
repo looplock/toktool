@@ -10,6 +10,7 @@ import { createPortal } from "react-dom";
 import { BrandIcon } from "../ui/BrandIcon";
 import { CheckIcon, ChevronIcon, SearchIcon } from "../ui/icons";
 import type { BrandIconAsset } from "../../lib/brandIcons";
+import { modalDialogOpen } from "../../lib/modalGuard";
 
 export interface MultiSelectOption {
   readonly value: string;
@@ -116,7 +117,8 @@ export function MultiSelect({
       onDismiss();
     }
     function onKeyDown(event: KeyboardEvent): void {
-      if (event.key === "Escape") {
+      // 模态弹层打开时让位（同 modalGuard 的统一互斥）：一次 Esc 只关最上层。
+      if (event.key === "Escape" && !modalDialogOpen()) {
         setOpen(false);
         setQuery("");
       }

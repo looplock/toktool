@@ -16,6 +16,7 @@ import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react
 import { createPortal } from "react-dom";
 
 import { CheckIcon, ChevronIcon, ChevronsIcon } from "../ui/icons";
+import { modalDialogOpen } from "../../lib/modalGuard";
 
 export interface PaginationLabels {
   readonly nav: string;
@@ -144,7 +145,8 @@ export function Pagination({
       setPageSizeOpen(false);
     }
     function onKeyDown(event: KeyboardEvent): void {
-      if (event.key === "Escape") {
+      // 模态弹层打开时让位（同 modalGuard 的统一互斥）：一次 Esc 只关最上层。
+      if (event.key === "Escape" && !modalDialogOpen()) {
         setPageSizeOpen(false);
       }
     }
