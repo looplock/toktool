@@ -5,6 +5,8 @@
 
 import { invoke } from "@tauri-apps/api/core";
 import { disable, enable, isEnabled } from "@tauri-apps/plugin-autostart";
+import { check, type DownloadEvent, type Update } from "@tauri-apps/plugin-updater";
+import { relaunch } from "@tauri-apps/plugin-process";
 
 export interface UsageTotals {
   readonly inputTokens: number;
@@ -875,4 +877,30 @@ export function autostartIsEnabled(): Promise<boolean> {
 
 export function autostartSet(enabled: boolean): Promise<void> {
   return enabled ? enable() : disable();
+}
+
+// ---- 应用内更新（tauri-plugin-updater / plugin-process） ----
+
+export type UpdaterUpdate = Update;
+export type UpdaterDownloadEvent = DownloadEvent;
+
+/** 检查更新源：有新版返回 Update 对象（调用方持有，串起下载与安装），
+ * 已是最新返回 null。Update 带方法不可结构化克隆，不能进 React state——
+ * 调用方用 ref 持有。 */
+export function updaterCheck(): Promise<UpdaterUpdate | null> {
+  return check();
+}
+
+/** 下载并安装更新（onEvent 区分下载与安装阶段）。Windows 上安装器会自动
+ * 退出应用完成安装；macOS / Linux 需再调 appRelaunch 重启进新版。 */
+export function updaterDownloadAndInstall(
+  update: UpdaterUpdate,
+  onEvent?: (event: UpdaterDownloadEvent) => void,
+): Promise<void> {
+  return update.downloadAndInstall(onEvent);
+}
+
+/** 重启应用加载新版本（仅 macOS / Linux 需要调；Windows 安装器自己退出）。 */
+export function appRelaunch(): Promise<void> {
+  return relaunch();
 }

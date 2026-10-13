@@ -6,6 +6,8 @@
   "permissions": [
     "core:default",
     "autostart:default",
+    "updater:default",
+    "process:allow-restart",
     {
       "identifier": "opener:allow-open-path",
       "allow": [

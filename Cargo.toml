@@ -81,6 +81,8 @@ tauri-plugin-opener = "2.5"
 
 # 日志后端：文件落平台标准日志目录（含轮转），stdout 供 dev
 tauri-plugin-log = "2"
+tauri-plugin-updater = "2"
+tauri-plugin-process = "2"
 
 [profile.dev]
 # 省磁盘；代价是断点看不到变量值，需要时临时改回 debug = true

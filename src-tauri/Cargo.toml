@@ -36,6 +36,10 @@ tauri-plugin-autostart.workspace = true
 tauri-plugin-opener.workspace = true
 log.workspace = true
 tauri-plugin-log.workspace = true
+# 应用内更新：检查/下载/验签/安装（密钥未配置时更新源不可用，见 release.yml）
+tauri-plugin-updater.workspace = true
+# 更新安装完成后 relaunch 重启进新版
+tauri-plugin-process.workspace = true
 
 [build-dependencies]
 tauri-build.workspace = true

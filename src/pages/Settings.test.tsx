@@ -4,6 +4,7 @@ import { expect, it } from "vitest";
 import { stringsFor } from "../i18n/strings";
 import { ACCENT_IDS, type AccentId } from "../lib/theme";
 import { TOOL_ITEMS } from "../lib/tools";
+import { version as APP_VERSION } from "../../package.json";
 import { SettingsPage } from "./Settings";
 
 // 用 react-dom/server 而不是 jsdom：这里只验"渲染出什么"，不碰交互，
@@ -76,15 +77,24 @@ it("当前选中的强调色只有一枚呈按下态", () => {
   expect(html.split('aria-pressed="true"').length - 1).toBe(1);
 });
 
-it("四个分区都在导航里，未激活的内容面板以 hidden 收起", () => {
+it("五个分区都在导航里，未激活的内容面板以 hidden 收起", () => {
   const html = renderSettings();
 
   expect(html).toContain(strings.settingsAppearance);
   expect(html).toContain(strings.settingsDisplay);
   expect(html).toContain(strings.settingsBackground);
   expect(html).toContain(strings.settingsTools);
-  // 外观激活，另外三个面板收起。
-  expect(html.split(" hidden").length - 1).toBe(3);
+  expect(html).toContain(strings.settingsAbout);
+  // 外观激活，另外四个面板收起。
+  expect(html.split(" hidden").length - 1).toBe(4);
+});
+
+it("关于区有版本号与检查更新按钮", () => {
+  const html = renderSettings();
+
+  expect(html).toContain(APP_VERSION);
+  expect(html).toContain(strings.settingsVersionLabel);
+  expect(html).toContain(strings.settingsUpdateCheck);
 });
 
 it("工具启用区列出全部受支持工具，每个一把开关", () => {

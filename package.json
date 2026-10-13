@@ -31,6 +31,8 @@
     "@lobehub/icons-static-svg": "^1.95.1",
     "@tauri-apps/api": "^2.11.1",
     "@tauri-apps/plugin-autostart": "^2.5.1",
+    "@tauri-apps/plugin-process": "^2.4.0",
+    "@tauri-apps/plugin-updater": "^2.13.3",
     "echarts": "^6.1.0",
     "gridstack": "^14.0.0",
     "react": "^19.3.0",

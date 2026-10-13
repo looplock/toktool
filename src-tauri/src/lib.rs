@@ -182,6 +182,12 @@ pub fn run() {
         )) // 会话详情图片附件的"打开"：opener 的 open_path 权限在能力文件里
         // 限定为 WorkBuddy 的两个附件目录，其他路径一律拒绝。
         .plugin(tauri_plugin_opener::init())
+        // 应用内更新：检查/下载/验签/安装。公钥与更新源在 tauri.conf.json 的
+        // plugins.updater（GitHub Releases）；发布签名密钥未配置时构建不出
+        // updater 产物，检查按钮报错即可，不影响其余功能（见 release.yml）。
+        .plugin(tauri_plugin_updater::Builder::new().build())
+        // 更新安装完成后的重启入口。
+        .plugin(tauri_plugin_process::init())
         .invoke_handler(tauri::generate_handler![
             commands::scan_trigger,
             commands::scan_backlog,

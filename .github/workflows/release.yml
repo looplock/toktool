@@ -125,10 +125,30 @@ jobs:
       - name: Install JS dependencies
         run: pnpm install --frozen-lockfile
 
+      # 更新通道签名密钥（tauri signer generate 生成，私钥只放 GitHub
+      # Secrets，绝不进仓库）。未配置时不开 updater 产物、普通安装包照发；
+      # 配置后构建 .sig 签名产物，tauri-action 自动生成并上传 latest.json
+      # （应用内更新源 = GitHub Releases latest/download/latest.json）。
+      - name: Detect updater signing key
+        id: signing
+        shell: bash
+        env:
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+        run: |
+          if [ -n "$TAURI_SIGNING_PRIVATE_KEY" ]; then
+            echo "enabled=true" >> "$GITHUB_OUTPUT"
+            echo 'updater_args=--config {"bundle":{"createUpdaterArtifacts":true}}' >> "$GITHUB_OUTPUT"
+          else
+            echo "enabled=false" >> "$GITHUB_OUTPUT"
+            echo "updater_args=" >> "$GITHUB_OUTPUT"
+          fi
+
       # tauri-action 会自己执行 beforeBuildCommand（pnpm build）再打包。
       - uses: tauri-apps/tauri-action@fce9c6108b31ea247710505d3aaaa893ee6768d4 # v0
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAURI_SIGNING_PRIVATE_KEY: ${{ steps.signing.outputs.enabled == 'true' && secrets.TAURI_SIGNING_PRIVATE_KEY || '' }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
         with:
           tagName: ${{ github.ref_name }}
           releaseName: "Toktool ${{ github.ref_name }}"
@@ -137,17 +157,4 @@ jobs:
           releaseBody: ${{ needs.verify-version.outputs.body || 'See the assets below to download and install Toktool for your platform.' }}
           releaseDraft: true
           prerelease: false
-          args: --bundles ${{ matrix.bundles }}
-
-      # 便携版 exe：前端资源已内嵌进主二进制，绿色版可直接运行（依赖系统
-      # WebView2）。tauri-action 只上传 NSIS 安装器，这里补传 zip。
-      - name: Upload portable exe
-        if: matrix.os == 'windows-latest'
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        shell: pwsh
-        run: |
-          $version = $env:GITHUB_REF_NAME.TrimStart("v")
-          $zip = "Toktool_${version}_x64_portable.zip"
-          Compress-Archive -Path target/release/toktool.exe -DestinationPath $zip
-          gh release upload "$env:GITHUB_REF_NAME" "$zip" --clobber
+          args: --bundles ${{ matrix.bundles }} ${{ steps.signing.outputs.updater_args }}

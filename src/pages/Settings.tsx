@@ -4,16 +4,24 @@
  * 强调色（一组预设色板，落在 <html data-accent> 上）。
  * 工具启用区：按工具开关；禁用的工具不扫描、各页不显示，数据保留在库里。
  * "显示"区：Tokens 列的输入口径。"后台与托盘"：系统托盘与开机自启动。
+ * "关于"区：版本展示与手动检查更新（更新源/公钥在 tauri.conf.json）。
  */
 
-import { useState } from "react";
+import { useRef, useState } from "react";
 
+import { Button } from "../components/ui/Button";
 import { Card } from "../components/ui/Card";
 import { PageShell } from "../components/PageShell";
 import { SideNav } from "../components/ui/SideNav";
 import { Switch } from "../components/ui/Switch";
 import { Segmented, type SegmentedOption } from "../components/ui/Segmented";
 import type { MessageKey, Strings } from "../i18n/strings";
+import {
+  appRelaunch,
+  updaterCheck,
+  updaterDownloadAndInstall,
+  type UpdaterUpdate,
+} from "../lib/api";
 import {
   INPUT_SCOPES,
   type InputScope,
@@ -35,6 +43,18 @@ import {
   type ThemeMode,
 } from "../lib/theme";
 import { TOOL_ITEMS } from "../lib/tools";
+import { version as APP_VERSION } from "../../package.json";
+
+/** 更新流程的阶段：检查 → 有新版 → 下载安装 → 待重启；任一步失败落 error。 */
+type UpdatePhase =
+  | "idle"
+  | "checking"
+  | "uptodate"
+  | "available"
+  | "downloading"
+  | "installing"
+  | "ready"
+  | "error";
 
 interface SettingsPageProps {
   readonly strings: Strings;
@@ -61,7 +81,7 @@ interface SettingsPageProps {
 }
 
 /** 设置分区。label 是导航文案，也是内容区标题。 */
-const SECTIONS = ["appearance", "display", "background", "tools"] as const;
+const SECTIONS = ["appearance", "display", "background", "tools", "about"] as const;
 type SectionId = (typeof SECTIONS)[number];
 
 const SECTION_LABEL_KEYS: Record<SectionId, MessageKey> = {
@@ -69,6 +89,7 @@ const SECTION_LABEL_KEYS: Record<SectionId, MessageKey> = {
   display: "settingsDisplay",
   background: "settingsBackground",
   tools: "settingsTools",
+  about: "settingsAbout",
 };
 
 const MODE_LABEL_KEYS: Record<ThemeMode, MessageKey> = {
@@ -135,6 +156,54 @@ export function SettingsPage({
   onAutostartChange,
 }: SettingsPageProps) {
   const [section, setSection] = useState<SectionId>("appearance");
+
+  const [updatePhase, setUpdatePhase] = useState<UpdatePhase>("idle");
+  const [availableVersion, setAvailableVersion] = useState<string | null>(null);
+  const [updateFailure, setUpdateFailure] = useState<string | null>(null);
+  // Update 对象带方法、不可结构化克隆进 state，跨渲染用 ref 持有。
+  const pendingUpdate = useRef<UpdaterUpdate>(null);
+
+  const updateBusy =
+    updatePhase === "checking" ||
+    updatePhase === "downloading" ||
+    updatePhase === "installing";
+
+  async function runUpdateCheck(): Promise<void> {
+    setUpdatePhase("checking");
+    setUpdateFailure(null);
+    try {
+      const update = await updaterCheck();
+      if (update === null) {
+        setUpdatePhase("uptodate");
+        return;
+      }
+      pendingUpdate.current = update;
+      setAvailableVersion(update.version);
+      setUpdatePhase("available");
+    } catch (err) {
+      setUpdateFailure(String(err));
+      setUpdatePhase("error");
+    }
+  }
+
+  async function runUpdateInstall(): Promise<void> {
+    const update = pendingUpdate.current;
+    if (update === null) return;
+    setUpdatePhase("downloading");
+    setUpdateFailure(null);
+    try {
+      // Started/Finished 事件把"下载中"与"安装中"分开（Windows 上 Finished
+      // 后安装器会直接退出应用）。
+      await updaterDownloadAndInstall(update, (event) => {
+        if (event.event === "Started") setUpdatePhase("downloading");
+        else if (event.event === "Finished") setUpdatePhase("installing");
+      });
+      setUpdatePhase("ready");
+    } catch (err) {
+      setUpdateFailure(String(err));
+      setUpdatePhase("error");
+    }
+  }
 
   const modeOptions: SegmentedOption<ThemeMode>[] = THEME_MODES.map(
     (value) => ({
@@ -386,6 +455,79 @@ export function SettingsPage({
                     ))}
                   </ul>
                 </>
+              )}
+              {id === "about" && (
+                <ul className="mt-2">
+                  <li className="flex items-center justify-between gap-4 py-3">
+                    <div className="min-w-0">
+                      <p className="text-sm">{strings.settingsVersionLabel}</p>
+                      <p className="mt-0.5 font-mono text-xs text-ink-muted">
+                        {APP_VERSION}
+                      </p>
+                      {updatePhase === "uptodate" && (
+                        <p className="mt-1 text-xs text-ink-muted">
+                          {strings.settingsUpdateUpToDate}
+                        </p>
+                      )}
+                      {updatePhase === "available" && (
+                        <p className="mt-1 text-xs text-ink-strong">
+                          {strings.settingsUpdateAvailable.replace(
+                            "{version}",
+                            availableVersion ?? "",
+                          )}
+                        </p>
+                      )}
+                      {updatePhase === "ready" && (
+                        <p className="mt-1 text-xs text-ink-strong">
+                          {strings.settingsUpdateReady}
+                        </p>
+                      )}
+                      {updateFailure === null ? null : (
+                        <p className="mt-1 text-xs text-danger">
+                          {strings.settingsUpdateFailed}: {updateFailure}
+                        </p>
+                      )}
+                    </div>
+                    <div className="flex shrink-0 items-center gap-2">
+                      {updatePhase === "ready" && (
+                        <Button
+                          variant="primary"
+                          onClick={() => {
+                            appRelaunch().catch(() => {});
+                          }}
+                        >
+                          {strings.settingsUpdateRestart}
+                        </Button>
+                      )}
+                      <Button
+                        variant="secondary"
+                        disabled={updateBusy}
+                        onClick={() => {
+                          if (updatePhase === "available") {
+                            void runUpdateInstall();
+                          } else {
+                            void runUpdateCheck();
+                          }
+                        }}
+                      >
+                        {updatePhase === "checking"
+                          ? strings.settingsUpdateChecking
+                          : updatePhase === "downloading"
+                            ? strings.settingsUpdateDownloading
+                            : updatePhase === "installing"
+                              ? strings.settingsUpdateInstalling
+                              : updatePhase === "available"
+                                ? strings.settingsUpdateDownload
+                                : strings.settingsUpdateCheck}
+                      </Button>
+                    </div>
+                  </li>
+                  {updatePhase === "ready" && (
+                    <li className="py-1 text-xs text-ink-muted">
+                      {strings.settingsUpdateInstallHint}
+                    </li>
+                  )}
+                </ul>
               )}
             </Card>
           ))}
