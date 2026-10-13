@@ -27,6 +27,7 @@ user-visible change; design rationale lives in commit messages and docs/.
 
 ### Fixed
 
+- Security: upgraded `ruzstd` to 0.9.1 (RUSTSEC-2026-0344, decompression bomb, CVSS 7.5).
 - Sessions: WorkBuddy subagent sessions resolve their parent project directory along ancestor dirs.
 - Sessions (regression fix): OpenCode session details all failed as "log too large" once the tool's own database passed the scan size gate — the DB-source exemption compared raw paths against normalized stored keys and never matched.
 - UI: the native title bar now follows the in-app light/dark theme instead of staying on the OS default.
@@ -35,6 +36,7 @@ user-visible change; design rationale lives in commit messages and docs/.
 
 ### 修复
 
+- 安全：`ruzstd` 升级到 0.9.1（RUSTSEC-2026-0344，解压炸弹，CVSS 7.5）。
 - 会话：WorkBuddy 子智能体会话沿祖先目录归属到正确的项目目录。
 - 会话（回归修复）：OpenCode 工具自有库超过扫描单文件上限后，全部会话详情被误报"会话日志过大"——数据库来源豁免用原样路径比较库里的归一化键，永不相等。
 - 界面：原生标题栏跟随应用内的亮暗主题，不再停在系统默认色。

@@ -307,17 +307,34 @@ mod tests {
 
     /// 登记源与库路径的分隔符/大小写漂移不得拆散数据库来源判定——曾经
     /// `C:\Users\...` vs 库里归一化的 `c:/users/...` 直接 `==` 永假，opencode
-    /// 全部会话详情被超限闸门错杀。
+    /// 全部会话详情被超限闸门错杀。大小写不敏感只在 Windows 成立（见
+    /// `normalize_scanned_path`），故按平台各验各的。
     #[test]
     fn db_session_source_matches_across_path_styles() {
-        let adapter = opencode::OpenCodeAdapter {
-            db_path: Some(PathBuf::from(
-                r#"C:\Users\Stewie\.local\share\opencode\opencode.db"#,
-            )),
-        };
-        let registered = "c:/users/stewie/.local/share/opencode/opencode.db";
-        assert!(db_session_source(&adapter, registered).is_some());
-        // 文件类来源（哪怕是同目录下的普通文件路径）不误判。
-        assert!(db_session_source(&adapter, "c:/users/stewie/other.jsonl").is_none());
+        #[cfg(windows)]
+        {
+            let adapter = opencode::OpenCodeAdapter {
+                db_path: Some(PathBuf::from(
+                    r"C:\Users\Stewie\.local\share\opencode\opencode.db",
+                )),
+            };
+            let registered = "c:/users/stewie/.local/share/opencode/opencode.db";
+            assert!(db_session_source(&adapter, registered).is_some());
+            // 文件类来源（哪怕是同目录下的普通文件路径）不误判。
+            assert!(db_session_source(&adapter, "c:/users/stewie/other.jsonl").is_none());
+        }
+        #[cfg(not(windows))]
+        {
+            // Unix 上大小写敏感是正确语义，只验证反斜杠→正斜杠的统一。
+            let adapter = opencode::OpenCodeAdapter {
+                db_path: Some(PathBuf::from(
+                    r"/home/stewie/.local\share/opencode/opencode.db",
+                )),
+            };
+            let registered = "/home/stewie/.local/share/opencode/opencode.db";
+            assert!(db_session_source(&adapter, registered).is_some());
+            // 文件类来源不误判。
+            assert!(db_session_source(&adapter, "/home/stewie/other.jsonl").is_none());
+        }
     }
 }
