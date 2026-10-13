@@ -63,7 +63,7 @@
   },
   "plugins": {
     "updater": {
-      "pubkey": "",
+      "pubkey": "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IEVFMEU0NTc3Nzg5MjcyRjUKUldUMWNwSjRkMFVPN3RObVlwZ21pZ0RzaUhvN0txRjl4MXFVeDBpZ1BINkZFOWN2T0M1SmpNZWIK",
       "endpoints": [
         "https://github.com/looplock/toktool/releases/latest/download/latest.json"
       ],
