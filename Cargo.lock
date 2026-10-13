@@ -4712,7 +4712,7 @@ dependencies = [
 
 [[package]]
 name = "toktool"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "log",
  "serde",
@@ -4731,7 +4731,7 @@ dependencies = [
 
 [[package]]
 name = "toktool-core"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "chrono",
  "reqwest 0.12.28",
@@ -4749,7 +4749,7 @@ dependencies = [
 
 [[package]]
 name = "toktool-gateway"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "arc-swap",
  "axum",

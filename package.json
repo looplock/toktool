@@ -1,7 +1,7 @@
 {
   "name": "toktool",
   "private": true,
-  "version": "0.1.0",
+  "version": "0.2.0",
   "type": "module",
   "description": "Toktool —— 本地优先的 AI 编程工具用量仪表盘",
   "packageManager": "pnpm@12.3.4",

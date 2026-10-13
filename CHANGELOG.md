@@ -15,20 +15,28 @@ user-visible change; design rationale lives in commit messages and docs/.
 记一行——发版时把标题改名为版本号、补日期与产物表即可，不做事后考古。
 纯内部改动（门禁、测试、重构、文档）不进 CHANGELOG。
 
-## [Unreleased]
+## [0.2.0] - 2026-10-13
 
 ### Added
 
+- In-app updater: the app checks GitHub Releases for new versions and offers one-click updates (signed update artifacts); release diagnostics are logged to a file for troubleshooting.
 - Sessions page: subagent sessions are nested under their parent session in the list (WorkBuddy `subagents/` logs); existing rows are linked in-place by a migration.
 
 ### 新增
 
+- 应用内更新器：应用检查 GitHub Releases 上的新版本并提供一键更新（更新产物带签名）；发布诊断信息写入日志文件便于排查。
 - 会话页：子智能体会话在列表里缩进挂在父会话下（WorkBuddy 的 `subagents/` 日志）；存量行由迁移就地回填父子关系。
 
 ### Fixed
 
+- UI: Escape is honored across all dialog layers — MultiSelect and Pagination panels no longer close together with a modal dialog on top, and the ConfirmDialog keeps focus trapped inside while open.
+- Dashboard: the drag handle is reachable on touch devices, gated to capable WebKit versions on Linux.
+- UI: the config page's gateway endpoint is derived from the running listener or registered config address (with proper IPv6 URL forms) instead of a hardcoded fallback that went stale on custom ports.
+- Shell: tray and autostart behavior now follow per-OS conventions, and the shell degrades to a no-tray mode instead of failing when the desktop environment has no tray.
+- Scanning: stored file keys are normalized against separator and case drift, and session log names match case-insensitively — the same log can no longer be scanned twice (or miss its dedup bookkeeping) because of path-shape differences between tools and hosts.
+- Gateway: a configured IPv6 listener is no longer silently switched to IPv4 by the port-conflict fallback, and an upstream transport abort mid-stream is surfaced as a protocol error instead of a successful empty answer; config file IO moved off the tokio workers so slow disks no longer stall concurrent requests, and the config path is reported with portable separators.
 - Security: upgraded `ruzstd` to 0.9.1 (RUSTSEC-2026-0344, decompression bomb, CVSS 7.5).
-- Sessions: WorkBuddy subagent sessions resolve their parent project directory along ancestor dirs.
+- Sessions: WorkBuddy subagent sessions resolve their parent project directory along ancestor dirs, and encoded project-dir names of both path shapes (Windows drive form and POSIX form) decode correctly on every platform.
 - Sessions (regression fix): OpenCode session details all failed as "log too large" once the tool's own database passed the scan size gate — the DB-source exemption compared raw paths against normalized stored keys and never matched.
 - UI: the native title bar now follows the in-app light/dark theme instead of staying on the OS default.
 - Overview: the user's card layout now persists in `~/.toktool/overview-layout.json` — clearing caches or moving the data folder no longer resets it; a v2 localStorage layout is migrated automatically on first run.
@@ -36,12 +44,38 @@ user-visible change; design rationale lives in commit messages and docs/.
 
 ### 修复
 
+- 界面：Esc 分层全场景生效——MultiSelect 与分页面板不再和其上的模态弹层一起关闭；ConfirmDialog 打开时焦点锁定在弹层内。
+- 仪表盘：拖动手柄在触屏设备上可触达（Linux 下按 WebKit 版本门控）。
+- 界面：配置页网关接入端点改为从运行中的监听地址或配置登记地址派生（IPv6 补方括号成合法 URL），不再写死兜底值而在自定义端口时显示错误地址。
+- 外壳：托盘与开机自启按各系统惯例处理；桌面环境无托盘时降级为无托盘模式而非启动失败。
+- 扫描：存储的文件键按分隔符与大小写漂移归一，会话日志名大小写不敏感匹配——同一条日志不再因路径形态差异被重复扫描或丢失去重簿记。
+- 网关：配置的 IPv6 监听不再被端口冲突回退悄悄切到 IPv4；上游传输中途断开以协议错误呈现，不再伪装成成功的空回答。配置文件 IO 移出 tokio 工作线程（慢盘不再拖住并发请求），配置路径以可移植分隔符呈现。
 - 安全：`ruzstd` 升级到 0.9.1（RUSTSEC-2026-0344，解压炸弹，CVSS 7.5）。
-- 会话：WorkBuddy 子智能体会话沿祖先目录归属到正确的项目目录。
+- 会话：WorkBuddy 子智能体会话沿祖先目录归属到正确的项目目录；编码项目目录名的两种形态（Windows 盘符形态与 POSIX 形态）在各平台均正确解码。
 - 会话（回归修复）：OpenCode 工具自有库超过扫描单文件上限后，全部会话详情被误报"会话日志过大"——数据库来源豁免用原样路径比较库里的归一化键，永不相等。
 - 界面：原生标题栏跟随应用内的亮暗主题，不再停在系统默认色。
 - 总览：卡片布局改存 `~/.toktool/overview-layout.json` —— 清缓存或迁移数据目录不再丢布局；localStorage 里的旧存档首次运行时自动迁移。
 - 总览：后续版本新增的卡片一律追加到用户布局底部，而非插回默认位置——升级不再打乱手工调好的布局。出厂默认布局改为双列排布。
+
+### Downloads / 下载
+
+| Platform / 平台 | Asset / 产物 |
+|---|---|
+| Windows | `Toktool_0.2.0_x64-setup.exe` |
+| macOS (Apple Silicon) | `Toktool_0.2.0_aarch64.dmg` / `Toktool_aarch64.app.tar.gz`（解压即用的 .app） |
+| Linux | `Toktool_0.2.0_amd64.AppImage` / `Toktool_0.2.0_amd64.deb` |
+
+⚠️ Installers are **not code-signed yet**: Windows SmartScreen and macOS Gatekeeper show a
+one-time security prompt on first launch — expected, not tampering. Verify the SHA-256
+digest listed next to each asset. Details: [docs/install.md](https://github.com/looplock/toktool/blob/main/docs/install.md).
+
+⚠️ 安装包**暂未代码签名**：Windows SmartScreen 与 macOS Gatekeeper 首次运行会出示一次性
+安全提示，属预期行为而非安装包被篡改。安装前请核对各产物旁的 SHA-256 摘要，
+详见 [docs/install.md](https://github.com/looplock/toktool/blob/main/docs/install.md)。
+
+**Nothing ever leaves your machine** — no account, no telemetry, no cloud sync. All data
+stays in `~/.toktool/`.
+**数据不出本机** —— 没有账号，没有遥测，没有云端同步。所有数据只留在 `~/.toktool/`。
 
 ## [0.1.0] - 2026-10-12
 
@@ -82,7 +116,7 @@ user-visible change; design rationale lives in commit messages and docs/.
 - Gateway: Responses-protocol stream end events now reference the same message item the deltas announced; Gemini upstream paths percent-encode the model name.
 - Gateway: config writes are atomic and token issuance goes through the same write lock, so concurrent changes can no longer corrupt gateway.json.
 - Sessions: deleting sessions on the last page no longer lands on an empty out-of-range page, and very long transcripts stay bounded by trimming content away from the viewport.
-- Sessions: oversize side logs (e.g. grok chat history) are capped instead of read unbounded; WorkBuddy subagent sessions now resolve to the correct project directory.
+- Sessions: oversize side logs (e.g. grok chat history) are capped instead of read unbounded; WorkBuddy subagent sessions on Windows resolve to the correct project directory.
 - UI: one Esc press closes only the topmost layer — a confirm dialog no longer exits the detail view behind it at the same time.
 - UI: dates and times follow the app language instead of the host system locale; the calendar card's weekday/month labels are localized as well.
 - UI: rapidly paging the gateway traffic list no longer lets a stale response overwrite the newer page.
@@ -95,7 +129,7 @@ user-visible change; design rationale lives in commit messages and docs/.
 - 网关：Responses 协议流的收尾事件指向 delta 宣告的同一消息条目；Gemini 上游路径对模型名做百分号转义。
 - 网关：配置写入改为原子替换、令牌签发走同一把写锁，并发操作不再可能写坏 gateway.json。
 - 会话：在最后一页删除会话不再落到空的越界页；超长转录的渲染窗口有界，远离视口的内容自动裁剪。
-- 会话：异常巨大的辅助日志（如 grok 聊天历史）设读取上限，不再无界读入；WorkBuddy 子代理会话正确归属到项目目录。
+- 会话：异常巨大的辅助日志（如 grok 聊天历史）设读取上限，不再无界读入；WorkBuddy 子代理会话（Windows）正确归属到项目目录。
 - 界面：一次 Esc 只关最上层——确认弹层打开时不再同时退出其后的详情视图。
 - 界面：日期与时间跟随界面语言而非宿主系统语言；日历卡的星期/月份标签同步本地化。
 - 界面：网关流量列表快速翻页时，迟到的旧响应不再覆盖新页。

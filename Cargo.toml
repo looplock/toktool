@@ -7,7 +7,7 @@ resolver = "2"
 members = ["crates/toktool-core", "crates/toktool-gateway", "src-tauri"]
 
 [workspace.package]
-version = "0.1.0"
+version = "0.2.0"
 edition = "2024"
 # MSRV 下限由依赖树的 MSRV 锚定：tauri 2.12 系（muda 0.20 等）要求 1.90，
 # 见 crates/toktool-core/src/paths.rs 的历史锚点说明（home_dir，Rust 1.87）。
