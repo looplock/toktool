@@ -19,6 +19,7 @@ const shell: SessionRow = {
   title: "New session",
   projectDir: null,
   lastActivityAt: 1_789_200_645_293,
+    parentExternalId: null,
   requestCount: 0,
   inputTokens: 0,
   outputTokens: 0,

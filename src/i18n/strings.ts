@@ -304,6 +304,7 @@ const zhCN = {
   sessionsDeleteFailed: "{n} 项未能删除",
   sessionsDeleting: "删除中…",
   sessionsSelectRow: "选择会话",
+  sessionsSubagentAria: "子智能体会话（归属上面的父会话）",
   // 行级与详情头部的删除入口（aria-label）与确认弹层。
   sessionsDeleteRow: "删除会话",
   sessionsDeleteOneTitle: "删除会话？",
@@ -904,6 +905,7 @@ const enUS: Strings = {
   sessionsDeleteFailed: "{n} could not be deleted",
   sessionsDeleting: "Deleting…",
   sessionsSelectRow: "Select session",
+  sessionsSubagentAria: "Subagent session (belongs to the parent above)",
   // Row-level and detail-header delete entries (aria-label) plus the confirm dialog.
   sessionsDeleteRow: "Delete session",
   sessionsDeleteOneTitle: "Delete this session?",

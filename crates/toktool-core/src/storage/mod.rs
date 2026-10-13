@@ -81,6 +81,9 @@ pub struct NewSession {
     pub title: Option<String>,
     /// 工具日志未提供则为 `None`。
     pub project_dir: Option<String>,
+    /// 父会话的 external_id（子智能体会话，如 workbuddy 的 `subagents/` 日志）；
+    /// 顶层会话为 `None`。落 `session_parents` 关联表。
+    pub parent_external_id: Option<String>,
     /// 首次见到该会话的日志文件（`scanned_files.id`）。
     pub source_file_id: i64,
 }
@@ -840,6 +843,9 @@ pub struct SessionRow {
     pub project_dir: Option<String>,
     /// 最近活跃时间（epoch ms，UTC）。
     pub last_activity_at: i64,
+    /// 父会话的 external_id（子智能体会话）；顶层会话为 `None`。
+    /// 来自 `session_parents` 关联表的 LEFT JOIN。
+    pub parent_external_id: Option<String>,
     /// 该会话的用量记录数（≈ 请求轮次）。
     pub request_count: i64,
     /// 输入桶合计。

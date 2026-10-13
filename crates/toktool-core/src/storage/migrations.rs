@@ -504,6 +504,37 @@ pub(super) const MIGRATIONS: &[&str] = &[
     // 不重置游标：重复行本就是同一文件的两本账，保留行自身的游标即为现状。
     // 临时表只在迁移事务内存活，整批 BEGIN IMMEDIATE … COMMIT，失败即回滚。
     MIGRATION_V26,
+    // v27：session_parents——子智能体会话的父链（如 workbuddy 的
+    // `<父会话id>/subagents/agent-*.jsonl`，父会话 id 编码在日志路径里）。会话页
+    // 据此把子会话缩进挂在父会话下。独立关联表而非 sessions 加列：ALTER TABLE
+    // 不可重入（v18 注），CREATE TABLE IF NOT EXISTS 天然可重入。存量行就地
+    // 回填（路径切片，不动会话行、不重置游标——删行重扫会让 usage_records
+    // 的归属置 NULL 变孤儿，统计页直接丢数据）；此后新建的子会话由适配器从
+    // 路径推导（scan 入账时写入）。basename 切片用 rtrim 集合技巧：
+    // rtrim(A, A 去掉 '/' 后的字符集) 剥掉尾段非 '/' 字符，再 replace 掉
+    // 前缀即得最后一段（父会话 id）。
+    "
+    CREATE TABLE IF NOT EXISTS session_parents (
+        tool               TEXT NOT NULL,
+        external_id        TEXT NOT NULL,
+        parent_external_id TEXT NOT NULL,
+        PRIMARY KEY (tool, external_id)
+    );
+
+    INSERT OR IGNORE INTO session_parents (tool, external_id, parent_external_id)
+    SELECT s.tool,
+           s.external_id,
+           replace(
+               substr(sf.path, 1, instr(sf.path, '/subagents/') - 1),
+               rtrim(substr(sf.path, 1, instr(sf.path, '/subagents/') - 1),
+                     replace(substr(sf.path, 1, instr(sf.path, '/subagents/') - 1),
+                             '/', '')),
+               '')
+    FROM sessions s
+    JOIN scanned_files sf ON sf.id = s.source_file_id
+    WHERE s.tool = 'workbuddy'
+      AND instr(sf.path, '/subagents/') > 0;
+    ",
 ];
 
 /// v26 的归一化键表达式与收尾 UPDATE 因平台而异（仅 Windows 折叠大小写，

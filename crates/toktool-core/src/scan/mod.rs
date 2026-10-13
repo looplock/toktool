@@ -664,6 +664,7 @@ fn apply_facts(ctx: &mut FactContext, raw_line: &str, facts: LineFacts) -> Resul
             external_id_is_derived: adapter.external_id_is_derived(),
             title: None,
             project_dir,
+            parent_external_id: facts.parent_external_id.clone(),
             source_file_id: *file_id,
         },
         now_ms(),
@@ -775,6 +776,7 @@ mod tests {
                 session_external_id: id,
                 title,
                 project_dir: None,
+                parent_external_id: None,
                 ts_ms: usage.as_ref().map(|u| u.ts_ms),
                 usage,
             }))
@@ -844,6 +846,7 @@ mod tests {
                         session_external_id: id.clone(),
                         title: None,
                         project_dir: None,
+                        parent_external_id: None,
                         ts_ms: Some(k as i64 + 1),
                         usage: Some(UsageFacts {
                             ts_ms: k as i64 + 1,

@@ -66,6 +66,7 @@ impl ClaudeCodeAdapter {
             session_external_id,
             title,
             project_dir: raw.cwd,
+            parent_external_id: None,
             ts_ms: raw.timestamp.as_deref().and_then(parse_ts_ms),
             usage,
         }))

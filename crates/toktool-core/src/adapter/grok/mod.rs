@@ -151,6 +151,7 @@ impl Adapter for GrokAdapter {
             session_external_id,
             title: None,
             project_dir: None,
+            parent_external_id: None,
             ts_ms,
             usage: Some(usage),
         }))
@@ -633,6 +634,7 @@ fn split_turn(
                     session_external_id: facts.session_external_id.clone(),
                     title: None,
                     project_dir: facts.project_dir.clone(),
+                    parent_external_id: None,
                     ts_ms: Some(ts_k),
                     usage: Some(UsageFacts {
                         ts_ms: ts_k,

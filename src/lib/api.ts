@@ -313,6 +313,8 @@ export interface SessionRow {
   readonly title: string | null;
   readonly projectDir: string | null;
   readonly lastActivityAt: number;
+  /** 父会话 externalId（子智能体会话，如 workbuddy 的 subagents 日志）；顶层会话为 null。 */
+  readonly parentExternalId: string | null;
   readonly requestCount: number;
   readonly inputTokens: number;
   readonly outputTokens: number;

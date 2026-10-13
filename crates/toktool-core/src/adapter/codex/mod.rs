@@ -212,6 +212,7 @@ impl CodexAdapter {
                     session_external_id: session_id,
                     title: None,
                     project_dir: raw.payload.cwd,
+                    parent_external_id: None,
                     ts_ms,
                     usage: None,
                 }))
@@ -230,6 +231,7 @@ impl CodexAdapter {
                     session_external_id: session_id,
                     title,
                     project_dir: None,
+                    parent_external_id: None,
                     ts_ms,
                     usage: None,
                 }))
@@ -252,6 +254,7 @@ impl CodexAdapter {
                     session_external_id: session_id,
                     title: None,
                     project_dir: None,
+                    parent_external_id: None,
                     ts_ms,
                     usage,
                 }))
@@ -282,6 +285,7 @@ impl CodexAdapter {
                     session_external_id: session_id,
                     title: None,
                     project_dir: None,
+                    parent_external_id: None,
                     ts_ms,
                     usage,
                 }))

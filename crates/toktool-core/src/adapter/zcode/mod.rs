@@ -263,6 +263,7 @@ impl Adapter for ZcodeAdapter {
                         session_external_id: id,
                         title: meta.title.map(truncate_title),
                         project_dir: meta.directory,
+                        parent_external_id: None,
                         ts_ms: Some(ts),
                         usage: None,
                     },
@@ -310,6 +311,7 @@ impl Adapter for ZcodeAdapter {
                         session_external_id,
                         title: None,
                         project_dir: None,
+                        parent_external_id: None,
                         ts_ms: Some(usage.ts_ms),
                         usage: Some(usage),
                     },
@@ -437,6 +439,7 @@ impl Adapter for ZcodeAdapter {
             session_external_id,
             title,
             project_dir: meta.as_ref().and_then(|m| m.directory.clone()),
+            parent_external_id: None,
             ts_ms: raw
                 .started_at
                 .as_deref()
@@ -1761,6 +1764,7 @@ mod tests {
                     external_id_is_derived: false,
                     title: None,
                     project_dir: None,
+                    parent_external_id: None,
                     source_file_id: file_id,
                 },
                 0,
@@ -1866,6 +1870,7 @@ mod tests {
                     external_id_is_derived: false,
                     title: None,
                     project_dir: None,
+                    parent_external_id: None,
                     source_file_id: file_id,
                 },
                 0,
@@ -1965,6 +1970,7 @@ mod tests {
                     external_id_is_derived: false,
                     title: None,
                     project_dir: None,
+                    parent_external_id: None,
                     source_file_id: file_id,
                 },
                 0,

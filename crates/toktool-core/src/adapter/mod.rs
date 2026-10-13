@@ -253,6 +253,9 @@ pub struct LineFacts {
     pub title: Option<String>,
     /// 项目目录；日志行未携带则 `None`。
     pub project_dir: Option<String>,
+    /// 父会话的 external_id（子智能体会话，如 workbuddy 的 `subagents/` 日志，
+    /// 父 id 编码在日志路径里）；顶层会话为 `None`。
+    pub parent_external_id: Option<String>,
     /// 该行时间戳（epoch ms，UTC）；无则 `None`，不参与会话活跃度更新。
     pub ts_ms: Option<i64>,
     /// 用量事实；非 assistant 行为 `None`。
@@ -308,7 +311,9 @@ mod tests {
     #[test]
     fn db_session_source_matches_across_path_styles() {
         let adapter = opencode::OpenCodeAdapter {
-            db_path: Some(PathBuf::from(r#"C:\Users\Stewie\.local\share\opencode\opencode.db"#)),
+            db_path: Some(PathBuf::from(
+                r#"C:\Users\Stewie\.local\share\opencode\opencode.db"#,
+            )),
         };
         let registered = "c:/users/stewie/.local/share/opencode/opencode.db";
         assert!(db_session_source(&adapter, registered).is_some());

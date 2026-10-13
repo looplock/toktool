@@ -529,6 +529,7 @@ mod tests {
                     external_id_is_derived: false,
                     title: None,
                     project_dir: None,
+                    parent_external_id: None,
                     source_file_id: file_id,
                 },
                 0,

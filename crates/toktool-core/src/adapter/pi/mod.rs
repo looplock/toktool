@@ -168,6 +168,7 @@ impl SessionCtx {
             session_external_id,
             title,
             project_dir: self.cwd.clone(),
+            parent_external_id: None,
             ts_ms,
             usage,
         }))

@@ -545,6 +545,7 @@ fn delete_session_keeps_usage_and_shared_files() {
         external_id_is_derived: false,
         title: title.map(str::to_string),
         project_dir: None,
+        parent_external_id: None,
         source_file_id: file_a,
     };
     let (s1, created1) = storage
@@ -2028,6 +2029,7 @@ fn usage_page_fixture(storage: &Storage) {
                 external_id_is_derived: false,
                 title: None,
                 project_dir: Some("D:/Work/Demo/App".into()),
+                parent_external_id: None,
                 source_file_id: file_id,
             },
             0,
@@ -2341,6 +2343,7 @@ fn seed_sessions(storage: &Storage) -> (i64, i64) {
                 external_id_is_derived: false,
                 title: None,
                 project_dir: Some("D:/Work/Demo/App".into()),
+                parent_external_id: None,
                 source_file_id: file_id,
             },
             100,
@@ -2357,6 +2360,7 @@ fn seed_sessions(storage: &Storage) -> (i64, i64) {
                 external_id_is_derived: false,
                 title: None,
                 project_dir: None,
+                parent_external_id: None,
                 source_file_id: file_id,
             },
             200,

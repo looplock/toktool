@@ -20,6 +20,7 @@ function rowFixture(overrides: Partial<SessionRow> = {}): SessionRow {
     title: "修复构建失败",
     projectDir: "D:\\Work\\Demo\\App",
     lastActivityAt: 1_760_000_000_000,
+    parentExternalId: null,
     requestCount: 12,
     inputTokens: 1000,
     outputTokens: 500,

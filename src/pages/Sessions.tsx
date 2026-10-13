@@ -340,13 +340,14 @@ export function SessionsPage({
                 )}
               </div>
             ) : (
-              pageData.rows.map((row) => (
+              buildSessionTree(pageData.rows).map(({ row, nested }) => (
                 <SessionListItem
                   key={row.id}
                   row={row}
                   strings={strings}
                   active={selected?.id === row.id}
                   checked={checkedIds.has(row.id)}
+                  nested={nested}
                   onOpen={() => setSelected(row)}
                   onToggleCheck={() => toggleChecked(row.id)}
                   onDelete={() => setConfirm({ kind: "one", sessionId: row.id })}
@@ -458,17 +459,63 @@ export function SessionsPage({
 }
 
 /**
+ * 会话行的树形组织：子智能体会话（parentExternalId 非空）紧跟其父会话之后
+ * 渲染并标记 nested。仅当父会话就在同一页里才缩进——跨页、被筛掉或已删的
+ * 父会话让子会话平铺，不悬空。两遍处理：先收集要跟随的子行，再按原序输出、
+ * 父行之后接其全部子行（保持原有相对顺序）；父子在页内的先后次序不影响归位。
+ */
+function buildSessionTree(
+  rows: readonly SessionRow[],
+): ReadonlyArray<{ readonly row: SessionRow; readonly nested: boolean }> {
+  const keys = new Set(rows.map((r) => `${r.tool}/${r.externalId}`));
+  const childrenByKey = new Map<string, SessionRow[]>();
+  for (const row of rows) {
+    const parentKey = row.parentExternalId
+      ? `${row.tool}/${row.parentExternalId}`
+      : null;
+    if (parentKey !== null && keys.has(parentKey)) {
+      const bucket = childrenByKey.get(parentKey);
+      if (bucket) {
+        bucket.push(row);
+      } else {
+        childrenByKey.set(parentKey, [row]);
+      }
+    }
+  }
+  const moved = new Set(
+    [...childrenByKey.values()].flat().map((row) => row.id),
+  );
+  const result: { row: SessionRow; nested: boolean }[] = [];
+  for (const row of rows) {
+    if (moved.has(row.id)) {
+      continue;
+    }
+    result.push({ row, nested: false });
+    const kids = childrenByKey.get(`${row.tool}/${row.externalId}`);
+    if (kids) {
+      for (const child of kids) {
+        result.push({ row: child, nested: true });
+      }
+    }
+  }
+  return result;
+}
+
+/**
  * 会话列表项：左侧常驻空白槽位 + 工具图标 + 标题（无标题退回未命名），
  * 元信息行左端时间、右端请求次数（两端对齐；工具身份由图标承担，
  * 不再重复工具名）。选中高亮，整行可点。复选框与删除按钮都在悬停
  * （或键盘聚焦）时以 opacity 浮现——不用宽度动画，避免逐帧重排；
  * 槽位常驻留白。两者的点击与键盘事件都不冒泡成"打开详情"。
+ * `nested` = 子智能体会话且父会话就在本页：整体缩进并挂树形连线；
+ * 父会话不在本页（跨页/被筛掉/已删）时平铺展示，不悬空缩进。
  */
 function SessionListItem({
   row,
   strings,
   active,
   checked,
+  nested,
   onOpen,
   onToggleCheck,
   onDelete,
@@ -477,6 +524,7 @@ function SessionListItem({
   readonly strings: Strings;
   readonly active: boolean;
   readonly checked: boolean;
+  readonly nested: boolean;
   readonly onOpen: () => void;
   readonly onToggleCheck: () => void;
   readonly onDelete: () => void;
@@ -493,10 +541,18 @@ function SessionListItem({
         }
       }}
       aria-current={active ? "true" : undefined}
-      className={`group flex w-full cursor-default items-center gap-2.5 border-b border-border/60 px-3 py-2.5 text-left transition-colors last:border-0 hover:bg-row-hover focus-visible:outline focus-visible:outline-2 focus-visible:outline-accent ${
+      aria-label={nested ? strings.sessionsSubagentAria : undefined}
+      className={`group flex w-full cursor-default items-center gap-2.5 border-b border-border/60 py-2.5 pl-3 pr-3 text-left transition-colors last:border-0 hover:bg-row-hover focus-visible:outline focus-visible:outline-2 focus-visible:outline-accent ${
         active || checked ? "bg-accent/10" : ""
-      }`}
+      } ${nested ? "ml-8" : ""}`}
     >
+      {/* 子智能体行的树形连线：└ 形钩子指向缩进缺口，父行在其上方。 */}
+      {nested && (
+        <span
+          aria-hidden
+          className="h-5 w-4 shrink-0 self-center rounded-bl-control border-b border-l border-ink-muted/40"
+        />
+      )}
       {/* 左侧槽位常驻留白，复选框悬停/勾选/键盘聚焦时在此浮现：
           行级 items-center 让槽位控件落在行的几何中线上；动画只走
           opacity（纯合成器，零重排）；隐藏态 pointer-events-none，
