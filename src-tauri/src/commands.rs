@@ -686,6 +686,42 @@ pub fn tray_set_texts(
     crate::tray_ops::set_texts(&app, &show, &scan, &low_power, &quit);
 }
 
+/// 读总览页布局原文 `~/.toktool/overview-layout.json`。文件不存在/读不了 → None，
+/// 由前端按默认布局走。内容校验在前端（layout.ts 的 readLayout 语义），这里只当文件管家。
+#[tauri::command]
+pub async fn layout_read() -> Result<Option<String>, String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        let path =
+            paths::overview_layout_path().ok_or_else(|| ErrorCode::HomeDirUnavailable.as_str())?;
+        match std::fs::read_to_string(path) {
+            Ok(text) => Ok(Some(text)),
+            // 不存在是首次使用的正常态；其余错误也归"无布局"，前端用默认。
+            Err(_) => Ok(None),
+        }
+    })
+    .await
+    .map_err(|_| ErrorCode::Internal.as_str().to_string())?
+}
+
+/// 写总览页布局。原子替换（临时文件 + rename），崩在半路不留半个文件。
+/// `text` 必须是 layout.ts 序列化好的 LayoutDoc JSON；这里不做 schema 校验——
+/// 校验权在读方，写方写丑只影响自己，下次读不出即回落默认布局。
+#[tauri::command]
+pub async fn layout_write(text: String) -> Result<(), String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        let path = paths::overview_layout_path()
+            .ok_or_else(|| ErrorCode::HomeDirUnavailable.as_str().to_string())?;
+        if let Some(dir) = path.parent() {
+            std::fs::create_dir_all(dir).map_err(|e| e.to_string())?;
+        }
+        let tmp = path.with_extension("json.tmp");
+        std::fs::write(&tmp, text).map_err(|e| e.to_string())?;
+        std::fs::rename(&tmp, &path).map_err(|e| e.to_string())
+    })
+    .await
+    .map_err(|_| ErrorCode::Internal.as_str().to_string())?
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

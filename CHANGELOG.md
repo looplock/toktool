@@ -15,6 +15,20 @@ user-visible change; design rationale lives in commit messages and docs/.
 记一行——发版时把标题改名为版本号、补日期与产物表即可，不做事后考古。
 纯内部改动（门禁、测试、重构、文档）不进 CHANGELOG。
 
+## [Unreleased]
+
+### Fixed
+
+- UI: the native title bar now follows the in-app light/dark theme instead of staying on the OS default.
+- Overview: the user's card layout now persists in `~/.toktool/overview-layout.json` — clearing caches or moving the data folder no longer resets it; a v2 localStorage layout is migrated automatically on first run.
+- Overview: cards added by future updates append below the user's arrangement instead of inserting at their default spots, so an upgrade no longer scrambles a hand-tuned layout. The factory default is now a two-column arrangement.
+
+### 修复
+
+- 界面：原生标题栏跟随应用内的亮暗主题，不再停在系统默认色。
+- 总览：卡片布局改存 `~/.toktool/overview-layout.json` —— 清缓存或迁移数据目录不再丢布局；localStorage 里的旧存档首次运行时自动迁移。
+- 总览：后续版本新增的卡片一律追加到用户布局底部，而非插回默认位置——升级不再打乱手工调好的布局。出厂默认布局改为双列排布。
+
 ## [0.1.0] - 2026-10-12
 
 ### Added

@@ -82,26 +82,22 @@ export interface LayoutDoc {
 }
 
 export const DEFAULT_WIDGETS: readonly LayoutWidget[] = [
-  { id: "usage", x: 0, y: 0, w: 32, h: 6 },
-  { id: "totals", x: 32, y: 0, w: 16, h: 6 },
-  { id: "composition", x: 0, y: 6, w: 20, h: 5 },
-  // trend（花费趋势）与 cumulative（累计用量）已下线；cache 卡已并入用量卡（视图切换）、
-  // projects 卡已并入构成卡（维度切换）、费用与调用量卡已并入组合卡（视图切换）、
-  // scatter（会话开销散点）已整体移除——旧存档里的这些 id 由 withDefaults 丢弃。
-  // 日历卡（GitHub 式活跃日历）曾整体移除又恢复，沿用 calendar 这个 id：
-  // 旧存档的位置与配置直接被继承，heatmapView 键已从配置面删除（读入时随配置一起废弃）。
-  { id: "calendar", x: 0, y: 11, w: 48, h: 9 },
-  { id: "flow", x: 0, y: 20, w: 48, h: 8 },
-  { id: "spread", x: 0, y: 28, w: 48, h: 6 },
-  { id: "combo", x: 0, y: 34, w: 48, h: 6 },
-  { id: "modelEfficiency", x: 0, y: 40, w: 48, h: 6 },
-  { id: "costWaterfall", x: 0, y: 46, w: 48, h: 6 },
+  // 默认双列：每行两张半宽卡（24/24），行高统一 10（flow 11 让桑基多呼吸一档）。
+  // 左列统计总览打头，右列模型用量紧随——首屏一行即见数字与图。
+  { id: "totals", x: 0, y: 0, w: 24, h: 10 },
+  { id: "usage", x: 24, y: 0, w: 24, h: 10 },
+  { id: "composition", x: 0, y: 10, w: 24, h: 10 },
+  { id: "calendar", x: 24, y: 10, w: 24, h: 10 },
+  { id: "flow", x: 0, y: 20, w: 24, h: 11 },
+  { id: "spread", x: 24, y: 20, w: 24, h: 11 },
+  { id: "combo", x: 0, y: 31, w: 24, h: 10 },
+  { id: "costWaterfall", x: 24, y: 31, w: 24, h: 10 },
+  { id: "modelEfficiency", x: 0, y: 41, w: 24, h: 10 },
 ];
 
 type Storage = Pick<globalThis.Storage, "getItem" | "setItem">;
 
 export const DEFAULT_CARD_CONFIG: CardConfig = { metric: "tokens", chart: "bar" };
-
 /** 按卡片 id 取默认布局。id 必须来自 DEFAULT_WIDGETS（卡片 id 全集）；未知 id
  *  说明调用方与默认表脱节，直接抛错暴露 bug——不再用 as 把 undefined 掩盖成
  *  运行时崩溃。生产路径（withDefaults）保证 doc.widgets 含全部默认卡片，
@@ -187,23 +183,36 @@ function readCards(doc: Record<string, unknown>): Record<string, CardConfig> {
   return cards;
 }
 
-/** 读不到或读到脏数据就返回 null（不猜、不静默用半份）。SSR（node 测试环境）
- * 没有 localStorage：无存储即无布局。 */
+/** 读本地布局。两条来源：Tauri 下读 `~/.toktool/overview-layout.json`（经 IPC），
+ * 纯浏览器（vitest/harness）读 localStorage。校验与版本迁移共用 normalizeDoc。 */
 export function readLayout(storage?: Storage): LayoutDoc | null {
+  // 同步口保留：纯浏览器路径直读 localStorage；Tauri 路径请用 readLayoutStored，
+  // 这里为了兼容旧测试在 Tauri 下也读 localStorage（首帧同步渲染用），异步口会覆盖它。
   const ls = storage ?? (typeof localStorage === "undefined" ? null : localStorage);
   if (ls === null) return null;
 
-  let parsed: unknown;
-
+  let raw: string | null;
   try {
-    const raw = ls.getItem(LS_KEY_LAYOUT);
+    raw = ls.getItem(LS_KEY_LAYOUT);
     if (raw === null) return null;
-
-    parsed = JSON.parse(raw);
   } catch {
     return null;
   }
+  return readLayoutText(raw);
+}
 
+/** 字符串 → LayoutDoc：脏数据返回 null（不猜、不静默用半份）；v1 坐标等比迁移到 48 列。 */
+function readLayoutText(text: string): LayoutDoc | null {
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(text);
+  } catch {
+    return null;
+  }
+  return normalizeDoc(parsed);
+}
+
+function normalizeDoc(parsed: unknown): LayoutDoc | null {
   if (typeof parsed !== "object" || parsed === null) return null;
   const doc = parsed as Record<string, unknown>;
   // v1 只在读入时迁移，不原样回写——下次保存自然就是 v2。
@@ -223,14 +232,31 @@ export function readLayout(storage?: Storage): LayoutDoc | null {
   };
 }
 
-/** 用默认表补齐：新加的卡片要出现，删掉的卡片不能残留。 */
+/** 用默认表补齐：新加的卡片要出现（追加到用户布局最底部，不打扰已有排列），
+ * 删掉的卡片不能残留。
+ *
+ * 位置策略：存量卡片沿用用户的位置；只有用户没见过的卡片（新版本新增）
+ * 才落到 `max(y+h)` 之下，用的是新默认尺寸——版本升级不再打乱用户摆好的布局。 */
 export function withDefaults(defaults: readonly LayoutWidget[], doc: LayoutDoc | null): LayoutDoc {
-  const known = doc === null ? [] : doc.widgets;
-  const cards = doc === null ? {} : doc.cards;
+  if (doc === null) return { version: LAYOUT_VERSION, widgets: [...defaults], cards: {} };
 
-  const widgets = defaults.map(
-    (fallback) => known.find((widget) => widget.id === fallback.id) ?? fallback,
-  );
+  const cards = doc.cards;
+  const knownIds = new Set(doc.widgets.map((widget) => widget.id));
+  // 存量卡片按默认表顺序排列（沿用用户位置）；缺的先不放——统一在尾部 append，
+  // 避免"默认位置插队"打乱用户已摆好的布局。
+  const widgets = defaults.flatMap((fallback) => {
+    const found = doc.widgets.find((w) => w.id === fallback.id);
+    return found === undefined ? [] : [found];
+  });
+
+  // append 起点：用户存档（含已废弃 id 的残影）的最深底边。
+  const bottom = doc.widgets.reduce((max, w) => Math.max(max, w.y + w.h), 0);
+  let cursor = bottom;
+  for (const fallback of defaults) {
+    if (knownIds.has(fallback.id)) continue;
+    widgets.push({ ...fallback, y: cursor });
+    cursor += fallback.h;
+  }
 
   return { version: LAYOUT_VERSION, widgets, cards };
 }
@@ -240,5 +266,52 @@ export function writeLayout(doc: LayoutDoc, storage: Storage = localStorage): vo
     storage.setItem(LS_KEY_LAYOUT, JSON.stringify(doc));
   } catch {
     // 写不进去（隐私模式等）就静默跳过，本次会话照样能拖。
+  }
+}
+
+/** Tauri 运行时判定：布局文件走 IPC，vitest/纯浏览器里没有壳，回落 localStorage。 */
+function inTauri(): boolean {
+  return typeof window !== "undefined" && "__TAURI_INTERNALS__" in window;
+}
+
+/** 从 `~/.toktool/overview-layout.json` 读布局。
+ * 迁移：文件不存在时回读 localStorage 旧键——找到就把旧布局返回并顺手写入文件
+ * （inTauri 才写），之后 localStorage 键废弃（不再读也不再写）。
+ * 纯浏览器（测试/harness）保持 localStorage 直读，行为不变。 */
+export async function readLayoutStored(): Promise<LayoutDoc | null> {
+  if (!inTauri()) return readLayout();
+
+  try {
+    const { invoke } = await import("@tauri-apps/api/core");
+    const text = await invoke<string | null>("layout_read");
+    if (text !== null && text !== "") {
+      const fromFile = readLayoutText(text);
+      if (fromFile !== null) return fromFile;
+    }
+  } catch {
+    // 壳读不出（文件损坏等）→ 走 localStorage 迁移兜底。
+  }
+
+  const legacy = readLayout();
+  if (legacy !== null) {
+    // 旧存档迁入文件；失败（磁盘等）也不阻塞本次会话，下次保存还会再试。
+    writeLayoutStored(legacy).catch(() => {});
+    return legacy;
+  }
+  return null;
+}
+
+/** 写布局到 `~/.toktool/overview-layout.json`。纯浏览器回落 localStorage。 */
+export async function writeLayoutStored(doc: LayoutDoc): Promise<void> {
+  const text = JSON.stringify(doc);
+  if (!inTauri()) {
+    writeLayout(doc);
+    return;
+  }
+  try {
+    const { invoke } = await import("@tauri-apps/api/core");
+    await invoke("layout_write", { text });
+  } catch {
+    // 写失败静默跳过（与 localStorage 时代同一纪律）：本次会话照常能拖。
   }
 }

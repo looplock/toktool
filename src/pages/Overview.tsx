@@ -28,9 +28,9 @@ import {
   DEFAULT_CARD_CONFIG,
   DEFAULT_WIDGETS,
   defaultWidgetFor,
-  readLayout,
+  readLayoutStored,
   withDefaults,
-  writeLayout,
+  writeLayoutStored,
   type CardConfig,
   type LayoutDoc,
   type LayoutWidget,
@@ -187,9 +187,20 @@ export function OverviewPage({
   initialDashboard,
 }: OverviewPageProps) {
   const locale = useLocale();
-  const [doc, setDoc] = useState<LayoutDoc>(() =>
-    withDefaults(DEFAULT_WIDGETS, readLayout()),
-  );
+  // 布局装载分两拍：先以默认布局同步出首帧（卡片位置数组已保证结构完整），
+  // 异步拿到持久化布局（~/.toktool/overview-layout.json）后覆盖——布局文件
+  // 在壳里，首帧同步等 IPC 会闪。
+  const [doc, setDoc] = useState<LayoutDoc>(() => withDefaults(DEFAULT_WIDGETS, null));
+
+  useEffect(() => {
+    let cancelled = false;
+    readLayoutStored().then((stored) => {
+      if (!cancelled) setDoc(withDefaults(DEFAULT_WIDGETS, stored));
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
   const [time, setTime] = useState<TimeSelection>(() => ({
     preset: "today",
     range: presetRange("today", Date.now()),
@@ -259,7 +270,7 @@ export function OverviewPage({
   const load = dashboardQuery.reload;
 
   useEffect(() => {
-    writeLayout(doc);
+    void writeLayoutStored(doc);
   }, [doc]);
 
   const timePresets = useMemo(() => timePresetsOf(strings), [strings]);
