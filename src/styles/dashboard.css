@@ -141,6 +141,15 @@
   pointer-events: auto;
 }
 
+/* 触屏没有 hover，靠 hover 显形的手柄永远不可达（看板无法重排）：
+ * 粗指针设备上手柄常驻。 */
+@media (pointer: coarse) {
+  .tt-grip {
+    opacity: 1;
+    pointer-events: auto;
+  }
+}
+
 .tt-card-head {
   display: flex;
   min-height: 26px;

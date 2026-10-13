@@ -24,8 +24,21 @@ sudo apt-get install -y \
   curl \
   wget \
   file \
+  pkg-config \
   libwebkit2gtk-4.1-dev \
   libappindicator3-dev \
   librsvg2-dev \
   patchelf \
   libssl-dev
+
+# 前端样式用了 :has() 选择器，WebKitGTK < 2.40 不支持且会静默丢掉相关规则
+#（看板卡片焦点态的缩放边/拖拽手柄不再显形）。老发行版装出来的就是旧
+# WebKitGTK，这里显式探测并告警，别让降级无感发生。
+if command -v pkg-config >/dev/null 2>&1; then
+  webkit_ver=$(pkg-config --modversion webkit2gtk-4.1 2>/dev/null || true)
+  if [ -n "$webkit_ver" ] \
+    && [ "$(printf '%s\n' "2.40" "$webkit_ver" | sort -V | head -n1)" != "2.40" ]; then
+    echo "警告：WebKitGTK ${webkit_ver} 低于 2.40，部分样式（:has() 选择器）会静默降级。" >&2
+    echo "建议使用 WebKitGTK >= 2.40 的发行版构建，否则界面功能不完整。" >&2
+  fi
+fi
