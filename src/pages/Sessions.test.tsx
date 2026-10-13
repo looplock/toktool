@@ -118,8 +118,13 @@ it("会话层级：子智能体会话跟随父会话缩进，父不在本页则�
       initialPageData={{ rows, total: rows.length }}
     />,
   );
-  // 缩进行带树形连线与 aria 标记；恰好一个（孤儿平铺）。
+  // 缩进行带 aria 标记；恰好一个（孤儿平铺）。
   expect(html.split(strings.sessionsSubagentAria).length - 1).toBe(1);
+  // 子行不做视觉缩进、无连接线，行样式与父行一致；仅排序跟随父会话。
+  expect(html).not.toContain("ml-8");
+  expect(html).not.toContain("top-1/2");
+  // 无折叠交互：会话行不渲染 aria-expanded（工具筛选下拉自带一个 false）。
+  expect(html.split("aria-expanded").length - 1).toBe(1);
   // DOM 顺序：父会话之后紧跟着子会话 A（无关会话被挪到其后）。
   const posParent = html.indexOf("父会话");
   const posChild = html.indexOf("子智能体 A");
