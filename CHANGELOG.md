@@ -15,6 +15,32 @@ user-visible change; design rationale lives in commit messages and docs/.
 记一行——发版时把标题改名为版本号、补日期与产物表即可，不做事后考古。
 纯内部改动（门禁、测试、重构、文档）不进 CHANGELOG。
 
+## [Unreleased]
+
+### Added
+
+- Sessions page: subagent sessions are nested under their parent session in the list (WorkBuddy `subagents/` logs); existing rows are linked in-place by a migration.
+
+### 新增
+
+- 会话页：子智能体会话在列表里缩进挂在父会话下（WorkBuddy 的 `subagents/` 日志）；存量行由迁移就地回填父子关系。
+
+### Fixed
+
+- Sessions: WorkBuddy subagent sessions resolve their parent project directory along ancestor dirs.
+- Sessions (regression fix): OpenCode session details all failed as "log too large" once the tool's own database passed the scan size gate — the DB-source exemption compared raw paths against normalized stored keys and never matched.
+- UI: the native title bar now follows the in-app light/dark theme instead of staying on the OS default.
+- Overview: the user's card layout now persists in `~/.toktool/overview-layout.json` — clearing caches or moving the data folder no longer resets it; a v2 localStorage layout is migrated automatically on first run.
+- Overview: cards added by future updates append below the user's arrangement instead of inserting at their default spots, so an upgrade no longer scrambles a hand-tuned layout. The factory default is now a two-column arrangement.
+
+### 修复
+
+- 会话：WorkBuddy 子智能体会话沿祖先目录归属到正确的项目目录。
+- 会话（回归修复）：OpenCode 工具自有库超过扫描单文件上限后，全部会话详情被误报"会话日志过大"——数据库来源豁免用原样路径比较库里的归一化键，永不相等。
+- 界面：原生标题栏跟随应用内的亮暗主题，不再停在系统默认色。
+- 总览：卡片布局改存 `~/.toktool/overview-layout.json` —— 清缓存或迁移数据目录不再丢布局；localStorage 里的旧存档首次运行时自动迁移。
+- 总览：后续版本新增的卡片一律追加到用户布局底部，而非插回默认位置——升级不再打乱手工调好的布局。出厂默认布局改为双列排布。
+
 ## [0.1.0] - 2026-10-12
 
 ### Added

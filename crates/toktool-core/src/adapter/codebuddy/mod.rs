@@ -268,6 +268,7 @@ impl Adapter for CodeBuddyAdapter {
                     session_external_id: session.conversation_id,
                     title: non_empty(title),
                     project_dir: non_empty(project_dir),
+                    parent_external_id: None,
                     ts_ms: Some(session.updated_at.unwrap_or(session.created_at)),
                     usage: None,
                 },
@@ -548,6 +549,7 @@ impl StepRecord {
             session_external_id: facts.0,
             title: None,
             project_dir: None,
+            parent_external_id: None,
             ts_ms: Some(facts.1),
             usage: Some(facts.2),
         }))

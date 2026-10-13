@@ -89,23 +89,32 @@ impl Adapter for WorkBuddyAdapter {
     }
 
     /// 项目目录编码在日志的存放目录名里（行内不带）：解析前先解码一次，
-    /// 把本文件产出的全部事实都补上归属。耗时依赖最近边界事件（见
-    /// [`parse_line_full`]）：前缀行先重建边界状态，再随逐行解析推进——
-    /// 增量续扫的确定性由此成立（同一文件内容 + 同一 start ⇒ 同一结果）。
+    /// 把本文件产出的全部事实都补上归属。子智能体日志（`<父会话id>/subagents/`
+    /// 下）同时补父会话链。耗时依赖最近边界事件（见 [`parse_line_full`]）：
+    /// 前缀行先重建边界状态，再随逐行解析推进——增量续扫的确定性由此成立
+    /// （同一文件内容 + 同一 start ⇒ 同一结果）。
     fn parse_file_at(&self, source_file: &Path, lines: &[&str], start: usize) -> Vec<LineParse> {
         let project_dir = self.project_dir_of(source_file);
+        let parent = Self::parent_session_external_id_of(source_file);
         let mut boundary = prefix_boundary_ts(&lines[..start]);
+        let enrich = |facts: &mut LineFacts| {
+            if project_dir.is_some() {
+                facts.project_dir = project_dir.clone();
+            }
+            facts.parent_external_id = parent.clone();
+        };
         lines[start..]
             .iter()
-            .map(|line| {
-                let parsed = parse_line_full(line, &mut boundary);
-                match (parsed, project_dir.as_ref()) {
-                    (LineParse::Facts(mut facts), Some(dir)) => {
-                        facts.project_dir = Some(dir.clone());
-                        LineParse::Facts(facts)
+            .map(|line| match parse_line_full(line, &mut boundary) {
+                mut parsed @ (LineParse::Facts(_) | LineParse::Split(_)) => {
+                    match &mut parsed {
+                        LineParse::Facts(facts) => enrich(facts),
+                        LineParse::Split(items) => items.iter_mut().for_each(enrich),
+                        _ => unreachable!(),
                     }
-                    (parsed, _) => parsed,
+                    parsed
                 }
+                parsed => parsed,
             })
             .collect()
     }
@@ -217,6 +226,15 @@ impl Adapter for WorkBuddyAdapter {
 }
 
 impl WorkBuddyAdapter {
+    /// 日志路径 → 父会话 external_id：路径含 `subagents` 层时，其上一级目录名
+    /// 即父会话 id（`<编码项目>/<父会话id>/subagents/agent-*.jsonl`，目录名与
+    /// 父会话的 `<父会话id>.jsonl` 同名）。顶层日志无此层，返回 `None`。
+    fn parent_session_external_id_of(source_file: &Path) -> Option<String> {
+        let dir = source_file.parent()?;
+        (dir.file_name()?.to_str()? == "subagents")
+            .then_some(dir.parent()?.file_name()?.to_string_lossy().into_owned())
+    }
+
     /// 日志文件 → 项目目录：沿父目录向上找到编码项目目录再解码。主会话日志
     /// 直接位于 `projects/<编码路径>/`；子智能体日志深两层
     /// （`<编码路径>/<会话id>/subagents/agent-*.jsonl`）。中间层目录名（会话
@@ -321,6 +339,7 @@ fn parse_raw_line(raw: RawLine, prev_boundary: Option<i64>) -> LineParse {
         session_external_id,
         title,
         project_dir: None,
+        parent_external_id: None,
         ts_ms: raw.timestamp,
         usage,
     }))
@@ -1245,6 +1264,38 @@ mod tests {
         );
 
         std::fs::remove_dir_all(&projects).unwrap();
+    }
+
+    /// 子智能体日志的父链：`<编码项目>/<父会话id>/subagents/agent-*.jsonl` 的
+    /// 上一级目录名就是父会话 external_id；顶层日志无父链。平台无关（纯路径
+    /// 切片，不碰 FS）。
+    #[test]
+    fn subagent_log_carries_parent_session_id() {
+        let log = std::env::temp_dir()
+            .join("toktool-wb-parents")
+            .join("e-Proj")
+            .join("01a2b3c4-1111-2222-3333-444455556666")
+            .join("subagents")
+            .join("agent-x.jsonl");
+        let parsed = adapter().parse_file_at(&log, &[FUNCTION_CALL], 0).remove(0);
+        let LineParse::Facts(facts) = parsed else {
+            panic!("期望 Facts");
+        };
+        assert_eq!(
+            facts.parent_external_id.as_deref(),
+            Some("01a2b3c4-1111-2222-3333-444455556666")
+        );
+
+        // 顶层日志：直接位于项目目录下，无 subagents 层，父链为空。
+        let top = std::env::temp_dir()
+            .join("toktool-wb-parents")
+            .join("e-Proj")
+            .join("main.jsonl");
+        let parsed = adapter().parse_file_at(&top, &[FUNCTION_CALL], 0).remove(0);
+        let LineParse::Facts(facts) = parsed else {
+            panic!("期望 Facts");
+        };
+        assert_eq!(facts.parent_external_id, None, "顶层会话无父链");
     }
 
     /// 会话 uuid 目录名形如"多字符-…"，不是单盘符形态，绝不能被误认成项目

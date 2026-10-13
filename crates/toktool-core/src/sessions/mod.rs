@@ -111,17 +111,10 @@ pub fn trash_session_with(
     let source = storage.scanned_file_path(session.source_file_id)?;
     // 数据库类来源判定：会话登记的源就是工具自有库。命中的是 opencode（全部
     // 会话）与 zcode 被轮转的会话；zcode 的 rollout 文件会话不匹配，走文件流。
-    // 两边都按 scanned_files 的键口径归一化后再比——库里存的是归一化形态，
-    // 适配器给的是原样路径，不归一就会因分隔符/大小写漂移误判成文件来源。
-    let db_path = adapter.db_source_path();
-    let db_source = match (&db_path, source.as_deref()) {
-        (Some(db), Some(src))
-            if src == crate::storage::normalize_scanned_path(&db.to_string_lossy()) =>
-        {
-            Some(db.as_path())
-        }
-        _ => None,
-    };
+    // 归一化比较由 [`Adapter::db_session_source`] 统一承担。
+    let db_source = source
+        .as_deref()
+        .and_then(|src| crate::adapter::db_session_source(adapter, src));
 
     let mut trashed = Vec::new();
     if let Some(db) = db_source {
@@ -130,7 +123,7 @@ pub fn trash_session_with(
         // 行已不存在时 None：来源无可清之物，照常清归属。未实现
         // delete_db_session 的来源（codebuddy）维持拒绝。
         if let Some(bundle) =
-            adapter.delete_db_session(db, &session.external_id, bundle_dir, trash)?
+            adapter.delete_db_session(&db, &session.external_id, bundle_dir, trash)?
         {
             trashed.push(bundle.to_string_lossy().into_owned());
         }
@@ -152,9 +145,9 @@ pub fn trash_session_with(
         //（用量、标题），只清文件会留下可被重扫重建的空壳。库行清理走同一
         // 个导出→入桶→删行流程；行不存在（库被清过/重建过）视为无事可做。
         if adapter.purge_db_rows_for_file_sessions()
-            && let Some(db) = db_path.as_deref()
+            && let Some(db) = adapter.db_source_path()
             && let Some(bundle) =
-                adapter.delete_db_session(db, &session.external_id, bundle_dir, trash)?
+                adapter.delete_db_session(&db, &session.external_id, bundle_dir, trash)?
         {
             trashed.push(bundle.to_string_lossy().into_owned());
         }
@@ -246,6 +239,7 @@ mod tests {
                     external_id_is_derived: false,
                     title: None,
                     project_dir: None,
+                    parent_external_id: None,
                     source_file_id: file_id,
                 },
                 0,
@@ -455,6 +449,7 @@ mod tests {
                     external_id_is_derived: false,
                     title: None,
                     project_dir: None,
+                    parent_external_id: None,
                     source_file_id: file_id,
                 },
                 0,
@@ -537,6 +532,7 @@ mod tests {
                     external_id_is_derived: false,
                     title: None,
                     project_dir: None,
+                    parent_external_id: None,
                     source_file_id: file_id,
                 },
                 0,
@@ -648,6 +644,7 @@ mod tests {
                     external_id_is_derived: false,
                     title: None,
                     project_dir: None,
+                    parent_external_id: None,
                     source_file_id: file_id,
                 },
                 0,
@@ -710,6 +707,7 @@ mod tests {
                     external_id_is_derived: false,
                     title: None,
                     project_dir: None,
+                    parent_external_id: None,
                     source_file_id: file_id,
                 },
                 0,
@@ -831,6 +829,7 @@ mod tests {
                     external_id_is_derived: false,
                     title: None,
                     project_dir: None,
+                    parent_external_id: None,
                     source_file_id: file_id,
                 },
                 0,
@@ -901,6 +900,7 @@ mod tests {
                     external_id_is_derived: false,
                     title: None,
                     project_dir: None,
+                    parent_external_id: None,
                     source_file_id: file_id,
                 },
                 0,
@@ -954,6 +954,7 @@ mod tests {
                     external_id_is_derived: false,
                     title: None,
                     project_dir: None,
+                    parent_external_id: None,
                     source_file_id: file_id,
                 },
                 0,

@@ -93,6 +93,13 @@ impl Storage {
                 now
             ],
         )?;
+        if let Some(parent) = &session.parent_external_id {
+            tx.execute(
+                "INSERT OR IGNORE INTO session_parents (tool, external_id, parent_external_id)
+                 VALUES (?1, ?2, ?3)",
+                params![session.tool, session.external_id, parent],
+            )?;
+        }
         let id: i64 = tx.query_row(
             "SELECT id FROM sessions WHERE tool = ?1 AND external_id = ?2",
             params![session.tool, session.external_id],
@@ -205,7 +212,8 @@ impl Storage {
     pub fn sessions_page(&self, query: &SessionsPageQuery) -> Result<SessionsPage> {
         let (where_sql, args) = sessions_where(&query.filters, &query.disabled);
         let from = "FROM sessions AS s
-             LEFT JOIN usage_records AS r ON r.session_id = s.id";
+             LEFT JOIN usage_records AS r ON r.session_id = s.id
+             LEFT JOIN session_parents AS p ON p.tool = s.tool AND p.external_id = s.external_id";
 
         let total: i64 = self.conn.query_row(
             &format!("SELECT COUNT(*) FROM sessions AS s{where_sql}"),
@@ -219,6 +227,7 @@ impl Storage {
         let mut stmt = self.conn.prepare(&format!(
             "SELECT
                 s.id, s.tool, s.external_id, s.title, s.project_dir, s.last_activity_at,
+                p.parent_external_id,
                 COALESCE(SUM(r.request_count), 0),
                 COALESCE(SUM(r.input_tokens), 0),
                 COALESCE(SUM(r.output_tokens), 0),
@@ -241,11 +250,12 @@ impl Storage {
                     title: row.get(3)?,
                     project_dir: row.get(4)?,
                     last_activity_at: row.get(5)?,
-                    request_count: row.get(6)?,
-                    input_tokens: row.get(7)?,
-                    output_tokens: row.get(8)?,
-                    cache_read_tokens: row.get(9)?,
-                    cache_write_tokens: row.get(10)?,
+                    parent_external_id: row.get(6)?,
+                    request_count: row.get(7)?,
+                    input_tokens: row.get(8)?,
+                    output_tokens: row.get(9)?,
+                    cache_read_tokens: row.get(10)?,
+                    cache_write_tokens: row.get(11)?,
                 })
             })?
             .collect::<std::result::Result<Vec<_>, _>>()?;

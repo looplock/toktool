@@ -24,6 +24,7 @@ function rowFixture(overrides: Partial<SessionRow> = {}): SessionRow {
     title: "修一个登录 bug",
     projectDir: "D:/Work/Demo/App",
     lastActivityAt: 1_767_255_045_293,
+    parentExternalId: null,
     requestCount: 12,
     inputTokens: 1_000,
     outputTokens: 500,
@@ -86,6 +87,52 @@ it("会话页数据态：时间行左时间右次数，不显示工具名与成�
   expect(html).not.toContain(strings.detailsCostUnknown);
   expect(html).not.toContain(formatCostMicros(3_500));
   expect(html).toContain(strings.paginationTotal.replace("{total}", "2"));
+});
+
+it("会话层级：子智能体会话跟随父会话缩进，父不在本页则平铺", () => {
+  const rows: readonly SessionRow[] = [
+    rowFixture({ id: 1, externalId: "parent-1", title: "父会话" }),
+    // 父在本页：紧跟父行之后缩进。列表传给渲染的顺序是活跃时间序，
+    // 这里故意把子行插在别的会话中间，验证重排。
+    rowFixture({
+      id: 2,
+      externalId: "child-1",
+      parentExternalId: "parent-1",
+      title: "子智能体 A",
+    }),
+    rowFixture({ id: 3, externalId: "standalone", title: "无关会话" }),
+    // 父不在本页：平铺不缩进。
+    rowFixture({
+      id: 4,
+      tool: "workbuddy",
+      externalId: "child-2",
+      parentExternalId: "parent-gone",
+      title: "孤儿子会话",
+    }),
+  ];
+  const html = renderToStaticMarkup(
+    <SessionsPage
+      strings={strings}
+      disabledTools={[]}
+      scanVersion={0}
+      initialPageData={{ rows, total: rows.length }}
+    />,
+  );
+  // 缩进行带 aria 标记；恰好一个（孤儿平铺）。
+  expect(html.split(strings.sessionsSubagentAria).length - 1).toBe(1);
+  // 子行不做视觉缩进、无连接线，行样式与父行一致；仅排序跟随父会话。
+  expect(html).not.toContain("ml-8");
+  expect(html).not.toContain("top-1/2");
+  // 无折叠交互：会话行不渲染 aria-expanded（工具筛选下拉自带一个 false）。
+  expect(html.split("aria-expanded").length - 1).toBe(1);
+  // DOM 顺序：父会话之后紧跟着子会话 A（无关会话被挪到其后）。
+  const posParent = html.indexOf("父会话");
+  const posChild = html.indexOf("子智能体 A");
+  const posStandalone = html.indexOf("无关会话");
+  expect(posChild).toBeGreaterThan(posParent);
+  expect(posStandalone).toBeGreaterThan(posChild);
+  // 孤儿子会话仍在文档里。
+  expect(html).toContain("孤儿子会话");
 });
 
 it("筛选条：搜索框与工具下拉并行，禁用工具不进选项", () => {

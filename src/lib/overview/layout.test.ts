@@ -87,7 +87,7 @@ describe("withDefaults", () => {
     expect(withDefaults(DEFAULTS, null).widgets).toEqual(DEFAULTS);
   });
 
-  it("存档里缺的卡片补默认，存档里已删的卡片不残留", () => {
+  it("存档里缺的卡片 append 到用户布局底部（沿用默认尺寸），已删卡片不残留", () => {
     const doc = readLayout(
       fake({
         "toktool-overview-layout": JSON.stringify({
@@ -100,9 +100,11 @@ describe("withDefaults", () => {
 
     const merged = withDefaults(DEFAULTS, doc);
 
+    // usage 保留用户位置；totals 是存档里没有的"新卡片"，append 到 max(y+h)=8 之下，
+    // x/w/h 沿用默认表——版本升级新增卡片不打乱用户已摆好的布局。
     expect(merged.widgets).toEqual([
       { id: "usage", x: 4, y: 1, w: 34, h: 7 },
-      { id: "totals", x: 8, y: 0, w: 4, h: 6 },
+      { id: "totals", x: 8, y: 8, w: 4, h: 6 },
     ]);
   });
 });

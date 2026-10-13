@@ -20,6 +20,7 @@ const row: SessionRow = {
   title: "查看项目内容",
   projectDir: null,
   lastActivityAt: 1_789_200_645_293,
+    parentExternalId: null,
   requestCount: 300,
   inputTokens: 61_000_000,
   outputTokens: 1_100_000,

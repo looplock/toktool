@@ -340,18 +340,48 @@ export function SessionsPage({
                 )}
               </div>
             ) : (
-              pageData.rows.map((row) => (
-                <SessionListItem
-                  key={row.id}
-                  row={row}
-                  strings={strings}
-                  active={selected?.id === row.id}
-                  checked={checkedIds.has(row.id)}
-                  onOpen={() => setSelected(row)}
-                  onToggleCheck={() => toggleChecked(row.id)}
-                  onDelete={() => setConfirm({ kind: "one", sessionId: row.id })}
-                />
-              ))
+              buildSessionTree(pageData.rows).map(({ row, children }) => {
+                const grouped = children.length > 0;
+                return (
+                  /* 组容器：relative 承载左侧竖条——竖条从首行(父)顶到
+                     末子行底（inset-y-0 即组全高），把父+子框成一个视觉
+                     整体（方案 C）；无子会话的行自成一组，无竖条。 */
+                  <div key={row.id} className="relative">
+                    {grouped && (
+                      <span
+                        aria-hidden
+                        className="absolute inset-y-0 left-0 w-[3px] rounded-full bg-accent/60"
+                      />
+                    )}
+                    <SessionListItem
+                      row={row}
+                      strings={strings}
+                      active={selected?.id === row.id}
+                      checked={checkedIds.has(row.id)}
+                      onOpen={() => setSelected(row)}
+                      onToggleCheck={() => toggleChecked(row.id)}
+                      onDelete={() =>
+                        setConfirm({ kind: "one", sessionId: row.id })
+                      }
+                    />
+                    {children.map((child) => (
+                      <SessionListItem
+                        key={child.id}
+                        row={child}
+                        strings={strings}
+                        active={selected?.id === child.id}
+                        checked={checkedIds.has(child.id)}
+                        nested
+                        onOpen={() => setSelected(child)}
+                        onToggleCheck={() => toggleChecked(child.id)}
+                        onDelete={() =>
+                          setConfirm({ kind: "one", sessionId: child.id })
+                        }
+                      />
+                    ))}
+                  </div>
+                );
+              })
             )}
           </div>
           <div className="shrink-0 border-t border-border px-3 py-2">
@@ -458,17 +488,68 @@ export function SessionsPage({
 }
 
 /**
+ * 会话行的树形组织：子智能体会话（parentExternalId 非空）归位到其父会话的
+ * children 里。仅当父会话就在同一页里才成组——跨页、被筛掉或已删的父会话
+ * 让子会话平铺在原位（children 为空），不悬空。两遍处理：先收集子行，再按
+ * 原序输出、父行携带其全部子行（保持原有相对顺序）；父子在页内的先后次序
+ * 不影响归位。
+ */
+type GroupedSession = {
+  readonly row: SessionRow;
+  readonly children: readonly SessionRow[];
+};
+
+function buildSessionTree(
+  rows: readonly SessionRow[],
+): ReadonlyArray<GroupedSession> {
+  const keys = new Set(rows.map((r) => `${r.tool}/${r.externalId}`));
+  const childrenByKey = new Map<string, SessionRow[]>();
+  for (const row of rows) {
+    const parentKey = row.parentExternalId
+      ? `${row.tool}/${row.parentExternalId}`
+      : null;
+    if (parentKey !== null && keys.has(parentKey)) {
+      const bucket = childrenByKey.get(parentKey);
+      if (bucket) {
+        bucket.push(row);
+      } else {
+        childrenByKey.set(parentKey, [row]);
+      }
+    }
+  }
+  const moved = new Set(
+    [...childrenByKey.values()].flat().map((row) => row.id),
+  );
+  const result: GroupedSession[] = [];
+  for (const row of rows) {
+    if (moved.has(row.id)) {
+      continue;
+    }
+    result.push({
+      row,
+      children: childrenByKey.get(`${row.tool}/${row.externalId}`) ?? [],
+    });
+  }
+  return result;
+}
+
+/**
  * 会话列表项：左侧常驻空白槽位 + 工具图标 + 标题（无标题退回未命名），
  * 元信息行左端时间、右端请求次数（两端对齐；工具身份由图标承担，
  * 不再重复工具名）。选中高亮，整行可点。复选框与删除按钮都在悬停
  * （或键盘聚焦）时以 opacity 浮现——不用宽度动画，避免逐帧重排；
  * 槽位常驻留白。两者的点击与键盘事件都不冒泡成"打开详情"。
+ * 方案 C + H：组容器在 left-0 画 3px 竖条把父+子框成一体，行左缘统一
+ * pl-3（竖条 3px、内容 12px 起，不重叠），所有行完全对齐无缩进；
+ * `nested` = 子会话：标题前挂「子」字徽章（方案 H），其余样式与父行
+ * 一致。
  */
 function SessionListItem({
   row,
   strings,
   active,
   checked,
+  nested = false,
   onOpen,
   onToggleCheck,
   onDelete,
@@ -477,6 +558,7 @@ function SessionListItem({
   readonly strings: Strings;
   readonly active: boolean;
   readonly checked: boolean;
+  readonly nested?: boolean;
   readonly onOpen: () => void;
   readonly onToggleCheck: () => void;
   readonly onDelete: () => void;
@@ -493,14 +575,15 @@ function SessionListItem({
         }
       }}
       aria-current={active ? "true" : undefined}
-      className={`group flex w-full cursor-default items-center gap-2.5 border-b border-border/60 px-3 py-2.5 text-left transition-colors last:border-0 hover:bg-row-hover focus-visible:outline focus-visible:outline-2 focus-visible:outline-accent ${
+      aria-label={nested ? strings.sessionsSubagentAria : undefined}
+      className={`group flex w-full cursor-default items-center gap-2.5 border-b border-border/60 py-2.5 pl-3 pr-3 text-left transition-colors last:border-0 hover:bg-row-hover focus-visible:outline focus-visible:outline-2 focus-visible:outline-accent ${
         active || checked ? "bg-accent/10" : ""
       }`}
     >
       {/* 左侧槽位常驻留白，复选框悬停/勾选/键盘聚焦时在此浮现：
           行级 items-center 让槽位控件落在行的几何中线上；动画只走
           opacity（纯合成器，零重排）；隐藏态 pointer-events-none，
-          点击落回行（打开详情）。 */}
+          点击落回行（打开详情）。所有行的复选框都落在同一列。 */}
       <span className="flex w-5 shrink-0 items-center justify-center">
         <span
           className={`transition-opacity duration-150 ${
@@ -512,12 +595,24 @@ function SessionListItem({
           <RowCheckbox checked={checked} label={strings.sessionsSelectRow} onToggle={onToggleCheck} />
         </span>
       </span>
-      <span className="shrink-0">
+      {/* 图标列：工具身份由图标承担。 */}
+      <span className="flex w-5 shrink-0 items-center justify-center">
         <ToolIcon toolId={row.tool} />
       </span>
       <span className="min-w-0 flex-1">
-        <span className="block truncate text-sm font-medium text-ink-strong">
-          {row.title ?? strings.sessionsUntitled}
+        <span className="flex min-w-0 items-center gap-1.5">
+          {/* 「子」徽章：仅子会话行（方案 H），语义直接写在标签上。 */}
+          {nested && (
+            <span
+              aria-hidden
+              className="shrink-0 rounded-control bg-accent/12 px-1 text-[10px] leading-4 font-medium text-accent"
+            >
+              {strings.sessionsSubagentBadge}
+            </span>
+          )}
+          <span className="block truncate text-sm font-medium text-ink-strong">
+            {row.title ?? strings.sessionsUntitled}
+          </span>
         </span>
         <span className="mt-0.5 flex items-center justify-between gap-2 text-xs text-ink-muted">
           <span className="font-mono tabular-nums">

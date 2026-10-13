@@ -201,6 +201,17 @@ pub trait Adapter: Sync {
     }
 }
 
+/// 会话登记源若就是工具自有库，返回库路径供来源分派。两边都按
+/// `scanned_files` 的键口径归一化后再比——库里存的是小写 + 正斜杠形态，
+/// 适配器给的是原样路径，不归一就会因分隔符/大小写漂移误判成文件来源
+/// （曾把 opencode 全部会话详情错杀成转录超限）。
+pub(crate) fn db_session_source(adapter: &dyn Adapter, source: &str) -> Option<PathBuf> {
+    adapter.db_source_path().filter(|db| {
+        crate::storage::normalize_scanned_path(&db.to_string_lossy())
+            == crate::storage::normalize_scanned_path(source)
+    })
+}
+
 /// 数据库类来源的一次全量读取。
 pub struct DbSource {
     /// 库文件路径：扫描簿记的来源标识（missing 标记、指纹存储）。
@@ -242,6 +253,9 @@ pub struct LineFacts {
     pub title: Option<String>,
     /// 项目目录；日志行未携带则 `None`。
     pub project_dir: Option<String>,
+    /// 父会话的 external_id（子智能体会话，如 workbuddy 的 `subagents/` 日志，
+    /// 父 id 编码在日志路径里）；顶层会话为 `None`。
+    pub parent_external_id: Option<String>,
     /// 该行时间戳（epoch ms，UTC）；无则 `None`，不参与会话活跃度更新。
     pub ts_ms: Option<i64>,
     /// 用量事实；非 assistant 行为 `None`。
@@ -285,4 +299,25 @@ pub fn adapters() -> Vec<Box<dyn Adapter>> {
         }),
         Box::new(grok::GrokAdapter),
     ]
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// 登记源与库路径的分隔符/大小写漂移不得拆散数据库来源判定——曾经
+    /// `C:\Users\...` vs 库里归一化的 `c:/users/...` 直接 `==` 永假，opencode
+    /// 全部会话详情被超限闸门错杀。
+    #[test]
+    fn db_session_source_matches_across_path_styles() {
+        let adapter = opencode::OpenCodeAdapter {
+            db_path: Some(PathBuf::from(
+                r#"C:\Users\Stewie\.local\share\opencode\opencode.db"#,
+            )),
+        };
+        let registered = "c:/users/stewie/.local/share/opencode/opencode.db";
+        assert!(db_session_source(&adapter, registered).is_some());
+        // 文件类来源（哪怕是同目录下的普通文件路径）不误判。
+        assert!(db_session_source(&adapter, "c:/users/stewie/other.jsonl").is_none());
+    }
 }

@@ -225,7 +225,9 @@ pub fn run() {
             commands::shell_get_config,
             commands::shell_set_disabled_tools,
             commands::tray_set_enabled,
-            commands::tray_set_texts
+            commands::tray_set_texts,
+            commands::layout_read,
+            commands::layout_write
         ])
         // 网关句柄槽位：起停命令经它持有运行中的服务。tauri 的 async Mutex
         //（tokio 之上的封装）让 start 持锁跨 await，顺带串行化起停。

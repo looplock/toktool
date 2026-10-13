@@ -152,12 +152,11 @@ fn resolve(
 /// 现读全量的超限闸门：超过扫描单文件上限且不走索引的工具，直接拒绝，
 /// 而不是把进程拖进全量读的泥潭（zcode 走索引，不受此限）。登记源是工具
 /// 自有库的（opencode）不设闸：读取走 SELECT，库文件体积与读取成本无关，
-/// 闸它会把该工具的全部会话详情错杀成 oversize。
+/// 闸它会把该工具的全部会话详情错杀成 oversize。判定按 scanned_files 的
+/// 键口径归一化后比较——库里是 `c:/users/...`，适配器给的是 `C:\Users\...`，
+/// 直接 `==` 永远不相等，豁免从未生效。
 fn gate_read_size(adapter: &dyn Adapter, source: &str) -> Result<()> {
-    if adapter
-        .db_source_path()
-        .is_some_and(|db| db == Path::new(source))
-    {
+    if super::super::adapter::db_session_source(adapter, source).is_some() {
         return Ok(());
     }
     let meta = std::fs::metadata(source).map_err(|err_source| Error::DataFile {
@@ -530,6 +529,7 @@ mod tests {
                     external_id_is_derived: false,
                     title: None,
                     project_dir: None,
+                    parent_external_id: None,
                     source_file_id: file_id,
                 },
                 0,
@@ -711,6 +711,34 @@ mod tests {
             true,
         );
         assert!(turns.is_empty(), "中断标记不开轮、不进目录（含首条兜底）");
+    }
+
+    /// 闸门豁免按归一化口径判定：登记源是 opencode 自有库（哪怕体积远超
+    /// 单文件上限）不设闸。曾经豁免判定用原样路径 `==`，与库里归一化形态
+    /// 永不相等，opencode 全部会话详情被错杀成 oversize。
+    #[test]
+    fn size_gate_exempts_db_source_despite_case_slash_drift() {
+        let adapter = crate::adapter::opencode::OpenCodeAdapter { db_path: None };
+        let db_path = adapter.db_source_path().unwrap();
+        // scanned_files 里存的是归一化形态（小写 + 正斜杠）；适配器给的是
+        // 原样 Windows 路径。豁免必须跨这两种形态命中。
+        let registered = crate::storage::normalize_scanned_path(&db_path.to_string_lossy());
+        assert!(
+            gate_read_size(&adapter, &registered).is_ok(),
+            "数据库来源超限也必须豁免"
+        );
+        // 注入式适配器给的原样路径同样命中（登记串即原样形态的场景）。
+        let injected = crate::adapter::opencode::OpenCodeAdapter {
+            db_path: Some(db_path.clone()),
+        };
+        let raw = db_path.to_string_lossy().into_owned();
+        assert!(
+            gate_read_size(&injected, &raw).is_ok(),
+            "原样路径形态也必须命中豁免"
+        );
+        // 非库来源的缺失文件：不是豁免语义的命中，保持数据文件错误。
+        let err = gate_read_size(&injected, "c:/nonexistent/huge.jsonl").unwrap_err();
+        assert_eq!(err.code().as_str(), "core.data_file");
     }
 
     #[test]

@@ -28,6 +28,10 @@ pub const SHELL_CONFIG_FILE: &str = "config.json";
 /// 用户定价覆盖（**用户手写**的 JSON，让人能用文本编辑器直接改，故不进数据库）。
 pub const PRICING_OVERRIDES_FILE: &str = "pricing-overrides.json";
 
+/// 总览页卡片布局（程序自动写，前端经 IPC 读写）。进数据目录而非 localStorage：
+/// 清浏览器缓存/换机器拷贝 `~/.toktool/` 都不丢布局。
+pub const OVERVIEW_LAYOUT_FILE: &str = "overview-layout.json";
+
 /// 删除数据库类来源会话时的导出包暂存目录：bundle 写在这里、随即移入系统
 /// 回收站（顺带离开本目录）。
 pub const TRASH_STAGING_DIR: &str = "trash-staging";
@@ -95,6 +99,11 @@ pub fn shell_config_path() -> Option<PathBuf> {
 /// 用户定价覆盖完整路径 `~/.toktool/pricing-overrides.json`。
 pub fn pricing_overrides_path() -> Option<PathBuf> {
     data_dir().map(|dir| dir.join(PRICING_OVERRIDES_FILE))
+}
+
+/// 总览页卡片布局完整路径 `~/.toktool/overview-layout.json`。
+pub fn overview_layout_path() -> Option<PathBuf> {
+    data_dir().map(|dir| dir.join(OVERVIEW_LAYOUT_FILE))
 }
 
 /// 回收站暂存目录完整路径 `~/.toktool/trash-staging/`。
