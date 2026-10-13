@@ -9,10 +9,10 @@ members = ["crates/toktool-core", "crates/toktool-gateway", "src-tauri"]
 [workspace.package]
 version = "0.1.0"
 edition = "2024"
-# MSRV 下限由 std::env::home_dir 的解除弃用版本锚定（Rust 1.87，见
-# crates/toktool-core/src/paths.rs），声明随依赖树的 MSRV（darling/plist/time
-# 均要求 1.88）上抬到 1.88。CI 有专门的检查线读取本值验证，改动不必同步文档。
-rust-version = "1.88"
+# MSRV 下限由依赖树的 MSRV 锚定：tauri 2.12 系（muda 0.20 等）要求 1.90，
+# 见 crates/toktool-core/src/paths.rs 的历史锚点说明（home_dir，Rust 1.87）。
+# CI 有专门的检查线读取本值验证，改动不必同步文档。
+rust-version = "1.90"
 authors = ["looplock"]
 license = "MIT"
 repository = "https://github.com/looplock/toktool"
