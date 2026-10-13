@@ -12,6 +12,18 @@ updates:
         applies-to: version-updates
         patterns:
           - "*"
+    ignore:
+      # 前端工具链的大版本升级涉及迁移成本（如 TS 7 移除了
+      # verify-i18n.mjs 依赖的 ScriptTarget API），不走周更，
+      # 由人工安排专门迁移后再移除对应条目。
+      - dependency-name: "typescript"
+        update-types: ["version-update:semver-major"]
+      - dependency-name: "vite"
+        update-types: ["version-update:semver-major"]
+      - dependency-name: "vitest"
+        update-types: ["version-update:semver-major"]
+      - dependency-name: "@vitejs/plugin-react"
+        update-types: ["version-update:semver-major"]
     open-pull-requests-limit: 5
 
   # Rust 依赖：workspace 在仓库根（根 Cargo.toml）。
@@ -24,6 +36,14 @@ updates:
         applies-to: version-updates
         patterns:
           - "*"
+    ignore:
+      # 这些 0.x/1.x 依赖的"小版本"实为跨兼容性版本的大升级
+      #（0.x 语义下次号即 breaking），API 变动大，走人工升级。
+      # tauri 系已通过 MSRV 1.90 跟进到 2.12，无需忽略。
+      - dependency-name: "rand"
+      - dependency-name: "sha2"
+      - dependency-name: "toml"
+      - dependency-name: "windows-sys"
     open-pull-requests-limit: 5
 
   # CI 用的 GitHub Actions 也纳入周更。
