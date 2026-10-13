@@ -1,0 +1,34 @@
+version: 2
+
+updates:
+  # npm 依赖：非安全更新按周分组成一个 PR，避免碎片化；
+  # 安全更新不受分组影响，Dependabot 仍会即时开出单独 PR。
+  - package-ecosystem: "npm"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+    groups:
+      npm-minor-and-patch:
+        applies-to: version-updates
+        patterns:
+          - "*"
+    open-pull-requests-limit: 5
+
+  # Rust 依赖：workspace 在仓库根（根 Cargo.toml）。
+  - package-ecosystem: "cargo"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+    groups:
+      cargo-minor-and-patch:
+        applies-to: version-updates
+        patterns:
+          - "*"
+    open-pull-requests-limit: 5
+
+  # CI 用的 GitHub Actions 也纳入周更。
+  - package-ecosystem: "github-actions"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+    open-pull-requests-limit: 5
