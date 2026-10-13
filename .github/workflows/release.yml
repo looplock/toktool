@@ -29,7 +29,7 @@ jobs:
       # 头部契约）；tag 触发时缺失段落即 fail-closed，拦住空壳 Release。
       body: ${{ steps.notes.outputs.body }}
     steps:
-      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
       - name: Check the three version sources agree with the tag
         run: |
@@ -99,7 +99,7 @@ jobs:
             bundles: app,dmg
     runs-on: ${{ matrix.os }}
     steps:
-      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
       # pnpm 版本从 package.json 的 packageManager 字段读取。
       - uses: pnpm/action-setup@f40ffcd9367d9f12939873eb1018b921a783ffaa # v4
