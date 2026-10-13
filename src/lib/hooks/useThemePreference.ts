@@ -5,13 +5,28 @@
 
 import { useEffect, useState } from "react";
 
+import { getCurrentWindow } from "@tauri-apps/api/window";
+
 import {
   applyTheme,
   readStoredThemeSettings,
   resolveMode,
   storeThemeMode,
+  type ResolvedMode,
   type ThemeMode,
 } from "../theme";
+
+/** true 仅在 Tauri 运行时（vitest/纯浏览器里没有 __TAURI_INTERNALS__）。 */
+function inTauri(): boolean {
+  return typeof window !== "undefined" && "__TAURI_INTERNALS__" in window;
+}
+
+/** 同步窗口层主题：Windows 标题栏等原生部件跟窗口 theme 走，不认 data-theme。
+ * 静默失败：主题设置不成功不该拖垮渲染路径。 */
+function applyWindowTheme(mode: ResolvedMode): void {
+  if (!inTauri()) return;
+  void getCurrentWindow().setTheme(mode).catch(() => {});
+}
 
 function matches(query: string): boolean {
   return typeof window.matchMedia === "function" && window.matchMedia(query).matches;
@@ -40,6 +55,7 @@ export function useThemePreference(): [ThemeMode, (mode: ThemeMode) => void] {
 
   useEffect(() => {
     applyTheme(resolved);
+    applyWindowTheme(resolved);
     storeThemeMode(mode);
   }, [resolved, mode]);
 
