@@ -356,7 +356,7 @@ impl Adapter for ZcodeAdapter {
     /// 登记源是应用库的会话没有可入桶的文件（工具的库绝不进回收站）；
     /// 真实 rollout 文件的删除走默认路径。
     fn session_artifacts(&self, source_file: &Path) -> Vec<PathBuf> {
-        if self.db_source_path().is_some_and(|db| db == source_file) {
+        if super::db_session_source(self, &source_file.to_string_lossy()).is_some() {
             return vec![];
         }
         vec![source_file.to_path_buf()]
